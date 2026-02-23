@@ -1,0 +1,324 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ AUTH & USERS ============
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  password      String
+  name          String
+  phone         String?
+  role          UserRole       @default(OWNER)
+  language      String         @default("ar")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  restaurant    Restaurant?
+  notifications Notification[]
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  STAFF
+  ADMIN
+}
+
+// ============ RESTAURANT ============
+
+model Restaurant {
+  id           String         @id @default(cuid())
+  name         String
+  nameAr       String
+  logo         String?
+  phone        String?
+  email        String?
+  currency     String         @default("SAR")
+  timezone     String         @default("Asia/Riyadh")
+  ownerId      String         @unique
+  owner        User           @relation(fields: [ownerId], references: [id])
+  subscription Subscription?
+  branches     Branch[]
+  menuItems    MenuItem[]
+  categories   Category[]
+  ingredients  Ingredient[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+// ============ SUBSCRIPTION & BILLING ============
+
+model Subscription {
+  id                 String    @id @default(cuid())
+  restaurantId       String    @unique
+  restaurant         Restaurant @relation(fields: [restaurantId], references: [id])
+  plan               PlanType  @default(BASIC)
+  status             SubStatus @default(ACTIVE)
+  stripeCustomerId   String?
+  stripeSubId        String?
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+enum PlanType {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+// ============ BRANCHES ============
+
+model Branch {
+  id            String         @id @default(cuid())
+  name          String
+  nameAr        String
+  address       String?
+  city          String?
+  latitude      Float?
+  longitude     Float?
+  isMain        Boolean        @default(false)
+  restaurantId  String
+  restaurant    Restaurant     @relation(fields: [restaurantId], references: [id])
+  orders        Order[]
+  employees     Employee[]
+  inventoryLogs InventoryLog[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+// ============ MENU ============
+
+model Category {
+  id           String     @id @default(cuid())
+  name         String
+  nameAr       String
+  sortOrder    Int        @default(0)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  menuItems    MenuItem[]
+}
+
+model MenuItem {
+  id              String               @id @default(cuid())
+  name            String
+  nameAr          String
+  description     String?
+  descriptionAr   String?
+  image           String?
+  price           Decimal              @db.Decimal(10, 2)
+  cost            Decimal?             @db.Decimal(10, 2)
+  isActive        Boolean              @default(true)
+  preparationTime Int?
+  categoryId      String
+  category        Category             @relation(fields: [categoryId], references: [id])
+  restaurantId    String
+  restaurant      Restaurant           @relation(fields: [restaurantId], references: [id])
+  ingredients     MenuItemIngredient[]
+  orderItems      OrderItem[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([restaurantId, isActive])
+}
+
+model Ingredient {
+  id            String               @id @default(cuid())
+  name          String
+  nameAr        String
+  unit          String
+  costPerUnit   Decimal              @db.Decimal(10, 2)
+  currentStock  Decimal              @db.Decimal(10, 2) @default(0)
+  minStock      Decimal              @db.Decimal(10, 2) @default(0)
+  restaurantId  String
+  restaurant    Restaurant           @relation(fields: [restaurantId], references: [id])
+  menuItems     MenuItemIngredient[]
+  inventoryLogs InventoryLog[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+model MenuItemIngredient {
+  id           String     @id @default(cuid())
+  menuItemId   String
+  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id])
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  quantity     Decimal    @db.Decimal(10, 4)
+
+  @@unique([menuItemId, ingredientId])
+}
+
+// ============ ORDERS ============
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String
+  type        OrderType
+  status      OrderStatus @default(PENDING)
+  subtotal    Decimal     @db.Decimal(10, 2)
+  tax         Decimal     @db.Decimal(10, 2) @default(0)
+  discount    Decimal     @db.Decimal(10, 2) @default(0)
+  total       Decimal     @db.Decimal(10, 2)
+  branchId    String
+  branch      Branch      @relation(fields: [branchId], references: [id])
+  items       OrderItem[]
+  posOrderId  String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([branchId, createdAt])
+  @@index([createdAt])
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity   Int
+  unitPrice  Decimal  @db.Decimal(10, 2)
+  totalPrice Decimal  @db.Decimal(10, 2)
+  notes      String?
+}
+
+// ============ INVENTORY ============
+
+model InventoryLog {
+  id           String          @id @default(cuid())
+  ingredientId String
+  ingredient   Ingredient      @relation(fields: [ingredientId], references: [id])
+  branchId     String
+  branch       Branch          @relation(fields: [branchId], references: [id])
+  type         InventoryAction
+  quantity     Decimal         @db.Decimal(10, 2)
+  note         String?
+  createdAt    DateTime        @default(now())
+}
+
+enum InventoryAction {
+  PURCHASE
+  CONSUMED
+  WASTED
+  ADJUSTMENT
+  TRANSFER
+}
+
+// ============ EMPLOYEES ============
+
+model Employee {
+  id        String   @id @default(cuid())
+  name      String
+  nameAr    String
+  phone     String?
+  role      String
+  salary    Decimal? @db.Decimal(10, 2)
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  shifts    Shift[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Shift {
+  id            String    @id @default(cuid())
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+  startTime     DateTime
+  endTime       DateTime?
+  ordersHandled Int       @default(0)
+  notes         String?
+}
+
+// ============ AI & ANALYTICS ============
+
+model AIPrediction {
+  id           String         @id @default(cuid())
+  restaurantId String
+  type         PredictionType
+  date         DateTime
+  data         Json
+  accuracy     Float?
+  createdAt    DateTime       @default(now())
+}
+
+enum PredictionType {
+  DAILY_SALES
+  WEEKLY_SALES
+  MENU_OPTIMIZATION
+  WASTE_ALERT
+  DEMAND_FORECAST
+}
+
+model DailySummary {
+  id           String   @id @default(cuid())
+  restaurantId String
+  branchId     String?
+  date         DateTime @db.Date
+  totalOrders  Int
+  totalRevenue Decimal  @db.Decimal(12, 2)
+  totalCost    Decimal  @db.Decimal(12, 2)
+  totalProfit  Decimal  @db.Decimal(12, 2)
+  topItems     Json
+  wasteAmount  Decimal? @db.Decimal(10, 2)
+  createdAt    DateTime @default(now())
+
+  @@unique([restaurantId, branchId, date])
+  @@index([restaurantId, date])
+}
+
+// ============ NOTIFICATIONS ============
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  title     String
+  titleAr   String
+  message   String
+  messageAr String
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  data      Json?
+  createdAt DateTime         @default(now())
+}
+
+enum NotificationType {
+  LOW_STOCK
+  HIGH_WASTE
+  SALES_ALERT
+  DAILY_REPORT
+  AI_RECOMMENDATION
+  PAYMENT_DUE
+  SYSTEM
+}

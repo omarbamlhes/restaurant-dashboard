@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    direction: rtl;
+  }
+  body {
+    @apply bg-slate-50 text-gray-900 dark:bg-dark-bg dark:text-gray-100;
+    font-feature-settings: 'ss01';
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/80 dark:bg-dark-card/80 backdrop-blur-xl border border-gray-200/50 dark:border-dark-border/50 rounded-2xl shadow-sm;
+  }
+  .stat-card {
+    @apply glass-card p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-primary-50 dark:hover:bg-primary-950/50 hover:text-primary-700 dark:hover:text-primary-400 transition-all duration-200;
+  }
+  .sidebar-link.active {
+    @apply bg-primary-50 dark:bg-primary-950/50 text-primary-700 dark:text-primary-400 font-semibold;
+  }
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:shadow-primary-500/25;
+  }
+  .btn-secondary {
+    @apply bg-gray-100 dark:bg-dark-card hover:bg-gray-200 dark:hover:bg-dark-hover text-gray-700 dark:text-gray-300 px-5 py-2.5 rounded-xl font-medium transition-all duration-200;
+  }
+  .input-field {
+    @apply w-full px-4 py-3 bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border rounded-xl text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all duration-200;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-600;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out;
+}
+.animate-slide-in {
+  animation: slideInRight 0.3s ease-out;
+}

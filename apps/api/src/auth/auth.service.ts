@@ -64,6 +64,49 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException();
     const { password, ...userWithout } = user;
-    return userWithout;
+    return { user: userWithout, restaurant: user.restaurant };
+  }
+
+  async updateProfile(id: string, data: { name?: string; email?: string; phone?: string }) {
+    if (data.email) {
+      const existing = await this.prisma.user.findFirst({
+        where: { email: data.email, NOT: { id } },
+      });
+      if (existing) throw new ConflictException('البريد مستخدم بالفعل');
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id },
+      data,
+      include: { restaurant: true },
+    });
+    const { password, ...userWithout } = user;
+    return { user: userWithout, restaurant: user.restaurant };
+  }
+
+  async changePassword(id: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new UnauthorizedException();
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) throw new UnauthorizedException('كلمة المرور الحالية غير صحيحة');
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id },
+      data: { password: hashedPassword },
+    });
+    return { message: 'تم تغيير كلمة المرور بنجاح' };
+  }
+
+  async updateRestaurant(userId: string, data: { name?: string; nameAr?: string; phone?: string; email?: string }) {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { ownerId: userId } });
+    if (!restaurant) throw new UnauthorizedException();
+
+    const updated = await this.prisma.restaurant.update({
+      where: { id: restaurant.id },
+      data,
+    });
+    return updated;
   }
 }

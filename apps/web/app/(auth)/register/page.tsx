@@ -25,7 +25,7 @@ export default function RegisterPage() {
     try {
       await register(form);
       toast.success('تم إنشاء الحساب بنجاح!');
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'حدث خطأ في التسجيل');
     } finally {

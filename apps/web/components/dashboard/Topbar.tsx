@@ -3,7 +3,8 @@
 import { Bell, Search, Sun, Moon, LogOut, User } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotificationStore } from '@/stores/notificationStore';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 interface TopbarProps {
   sidebarCollapsed: boolean;
@@ -11,8 +12,15 @@ interface TopbarProps {
 
 export default function Topbar({ sidebarCollapsed }: TopbarProps) {
   const { user, restaurant, logout } = useAuthStore();
-  const { unreadCount } = useNotificationStore();
+  const { unreadCount, fetchNotifications } = useNotificationStore();
   const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    fetchNotifications();
+    // Refresh every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   const toggleTheme = () => {
     const html = document.documentElement;
@@ -43,14 +51,14 @@ export default function Topbar({ sidebarCollapsed }: TopbarProps) {
         </button>
 
         {/* Notifications */}
-        <button className="relative p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-dark-card transition-colors">
+        <Link href="/notifications" className="relative p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-dark-card transition-colors">
           <Bell className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -left-0.5 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full">
+            <span className="absolute -top-0.5 -left-0.5 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full animate-pulse">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
-        </button>
+        </Link>
 
         {/* Divider */}
         <div className="w-px h-8 bg-gray-200 dark:bg-dark-border" />

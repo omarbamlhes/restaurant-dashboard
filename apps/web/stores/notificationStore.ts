@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import api from '@/lib/api';
 
 interface Notification {
   id: string;
@@ -17,6 +18,7 @@ interface NotificationState {
   addNotification: (n: Notification) => void;
   markAsRead: (id: string) => void;
   setNotifications: (list: Notification[]) => void;
+  fetchNotifications: () => Promise<void>;
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -42,4 +44,16 @@ export const useNotificationStore = create<NotificationState>((set) => ({
       notifications: list,
       unreadCount: list.filter((n) => !n.isRead).length,
     }),
+
+  fetchNotifications: async () => {
+    try {
+      const { data } = await api.get('/notifications');
+      set({
+        notifications: data,
+        unreadCount: data.filter((n: Notification) => !n.isRead).length,
+      });
+    } catch {
+      // silently fail - notifications are non-critical
+    }
+  },
 }));

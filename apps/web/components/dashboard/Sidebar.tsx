@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 const navItems = [
-  { href: '/', label: 'الرئيسية', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'الرئيسية', icon: LayoutDashboard },
   { href: '/menu', label: 'القائمة', icon: UtensilsCrossed },
   { href: '/analytics', label: 'التحليلات', icon: BarChart3 },
   { href: '/inventory', label: 'المخزون', icon: Package },
@@ -63,7 +63,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Nav items */}
       <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+          const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
           return (
             <Link
               key={item.href}

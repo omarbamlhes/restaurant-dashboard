@@ -19,7 +19,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       toast.success('مرحبا بك!');
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'بيانات الدخول غير صحيحة');
     } finally {

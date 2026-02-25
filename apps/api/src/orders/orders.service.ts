@@ -18,7 +18,9 @@ export class OrdersService {
     page?: number; limit?: number; branchId?: string;
     status?: string; type?: string; from?: string; to?: string;
   }) {
-    const { page = 1, limit = 20, branchId, status, type, from, to } = filters;
+    const page = Number(filters.page) || 1;
+    const limit = Number(filters.limit) || 20;
+    const { branchId, status, type, from, to } = filters;
     const branchIds = branchId ? [branchId] : await this.getBranchIds(restaurantId);
 
     const where: any = { branchId: { in: branchIds } };

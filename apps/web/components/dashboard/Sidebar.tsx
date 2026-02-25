@@ -15,10 +15,14 @@ import {
   Bell,
   ChevronLeft,
   TrendingUp,
+  Monitor,
+  ChefHat,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/dashboard', label: 'الرئيسية', icon: LayoutDashboard },
+  { href: '/pos', label: 'نقطة البيع', icon: Monitor },
+  { href: '/kitchen', label: 'المطبخ', icon: ChefHat },
   { href: '/menu', label: 'القائمة', icon: UtensilsCrossed },
   { href: '/analytics', label: 'التحليلات', icon: BarChart3 },
   { href: '/inventory', label: 'المخزون', icon: Package },

@@ -6,7 +6,7 @@ import StatsCard from '@/components/dashboard/StatsCard';
 import SalesChart from '@/components/charts/SalesChart';
 import RecentOrders from '@/components/dashboard/RecentOrders';
 import TopItems from '@/components/dashboard/TopItems';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import api from '@/lib/api';
 import { formatSAR } from '@/lib/utils';
 
@@ -35,7 +35,7 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <DashboardSkeleton />;
   if (!data) return null;
 
   return (
@@ -47,7 +47,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">
         <StatsCard
           title="إيرادات اليوم"
           value={formatSAR(data.todayRevenue)}

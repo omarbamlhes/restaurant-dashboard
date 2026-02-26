@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Package, Plus, Pencil, X, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History } from 'lucide-react';
 import toast from 'react-hot-toast';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
@@ -173,7 +173,7 @@ export default function InventoryPage() {
 
   const lowStockCount = ingredients.filter((i) => Number(i.currentStock) <= Number(i.minStock) && Number(i.minStock) > 0).length;
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <TableSkeleton columns={7} />;
 
   return (
     <div className="space-y-6">

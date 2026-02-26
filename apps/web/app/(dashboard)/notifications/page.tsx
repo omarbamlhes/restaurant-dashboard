@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Bell, CheckCheck, Package, TrendingUp, AlertTriangle, Bot, CreditCard, Settings, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -93,7 +93,7 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <TableSkeleton columns={3} rows={6} />;
 
   return (
     <div className="space-y-6">

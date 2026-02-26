@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Settings, User, Building2, Lock, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -118,7 +118,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <DashboardSkeleton />;
 
   const TABS: { key: Tab; label: string; icon: typeof User }[] = [
     { key: 'profile', label: 'الملف الشخصي', icon: User },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { UtensilsCrossed, Plus, Pencil, Trash2, X, Tag, DollarSign, Clock } from 'lucide-react';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
@@ -196,7 +196,7 @@ export default function MenuPage() {
 
       {/* Items Grid */}
       {loading ? (
-        <LoadingSpinner />
+        <TableSkeleton columns={4} rows={6} />
       ) : items.length === 0 ? (
         <div className="glass-card p-6">
           <EmptyState

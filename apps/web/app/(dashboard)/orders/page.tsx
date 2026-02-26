@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle } from 'lucide-react';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
@@ -160,7 +160,7 @@ export default function OrdersPage() {
 
       {/* Orders Table */}
       {loading ? (
-        <LoadingSpinner />
+        <TableSkeleton columns={7} />
       ) : orders.length === 0 ? (
         <div className="glass-card p-6">
           <EmptyState icon={ShoppingBag} title="لا توجد طلبات" description="لم يتم العثور على طلبات بهذه الفلاتر" />
@@ -271,7 +271,7 @@ export default function OrdersPage() {
       {/* Order Detail Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setSelectedOrder(null)}>
-          <div className="glass-card w-full max-w-lg mx-4 p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+          <div className="glass-card w-full max-w-lg mx-4 p-6 animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">
                 تفاصيل الطلب #{selectedOrder.orderNumber.slice(-6)}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Building2, Plus, Pencil, X, MapPin, Star, Package, Users } from 'lucide-react';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatNumber } from '@/lib/utils';
@@ -87,7 +87,7 @@ export default function BranchesPage() {
     }
   }
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <DashboardSkeleton />;
 
   return (
     <div className="space-y-6">

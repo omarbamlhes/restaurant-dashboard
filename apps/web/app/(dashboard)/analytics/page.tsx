@@ -6,7 +6,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 
@@ -83,7 +83,7 @@ export default function AnalyticsPage() {
   const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
   const peakHour = peakHours.reduce((max, h) => h.orders > max.orders ? h : max, peakHours[0] || { label: '—', orders: 0 });
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <DashboardSkeleton />;
 
   return (
     <div className="space-y-6">
@@ -116,7 +116,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 stagger-children">
         <div className="stat-card animate-fade-in-up">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">

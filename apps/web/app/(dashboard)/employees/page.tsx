@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Users, Plus, Pencil, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import LoadingSpinner from '@/components/shared/LoadingSpinner';
+import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
@@ -135,7 +135,7 @@ export default function EmployeesPage() {
     }
   }
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <TableSkeleton columns={7} />;
 
   return (
     <div className="space-y-6">

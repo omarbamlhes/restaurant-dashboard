@@ -1,38 +1,48 @@
 'use client';
 
-import { Bell, Search, Sun, Moon, LogOut, User } from 'lucide-react';
+import { Bell, Search, Sun, Moon, LogOut, User, Menu as MenuIcon } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotificationStore } from '@/stores/notificationStore';
-import { useEffect, useState } from 'react';
+import { useThemeStore } from '@/stores/themeStore';
+import { useEffect } from 'react';
 import Link from 'next/link';
 
 interface TopbarProps {
   sidebarCollapsed: boolean;
+  onMenuToggle?: () => void;
 }
 
-export default function Topbar({ sidebarCollapsed }: TopbarProps) {
+export default function Topbar({ sidebarCollapsed, onMenuToggle }: TopbarProps) {
   const { user, restaurant, logout } = useAuthStore();
   const { unreadCount, fetchNotifications } = useNotificationStore();
-  const [isDark, setIsDark] = useState(true);
+  const { theme, toggle: toggleTheme } = useThemeStore();
+
+  useEffect(() => {
+    // Sync store with actual DOM state on mount
+    const isDark = document.documentElement.classList.contains('dark');
+    useThemeStore.getState().setTheme(isDark ? 'dark' : 'light');
+  }, []);
 
   useEffect(() => {
     fetchNotifications();
-    // Refresh every 60 seconds
     const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
-  const toggleTheme = () => {
-    const html = document.documentElement;
-    html.classList.toggle('dark');
-    setIsDark(!isDark);
-  };
-
   return (
     <header
-      className="fixed top-0 left-0 z-30 h-16 flex items-center justify-between px-6 bg-white/80 dark:bg-dark-bg/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-border transition-all duration-300"
-      style={{ right: sidebarCollapsed ? '5rem' : '16rem' }}
+      className={`fixed top-0 left-0 z-30 h-16 flex items-center justify-between px-4 md:px-6 bg-white/80 dark:bg-dark-bg/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-border transition-all duration-300 right-0 ${sidebarCollapsed ? 'md:right-20' : 'md:right-64'}`}
     >
+      {/* Mobile menu button */}
+      {onMenuToggle && (
+        <button
+          onClick={onMenuToggle}
+          className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-dark-card transition-colors md:hidden ml-2"
+        >
+          <MenuIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        </button>
+      )}
+
       {/* Search */}
       <div className="relative flex-1 max-w-md">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -47,7 +57,7 @@ export default function Topbar({ sidebarCollapsed }: TopbarProps) {
       <div className="flex items-center gap-3">
         {/* Theme toggle */}
         <button onClick={toggleTheme} className="relative p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-dark-card transition-colors">
-          {isDark ? <Sun className="w-5 h-5 text-gray-500 dark:text-gray-400" /> : <Moon className="w-5 h-5 text-gray-500" />}
+          {theme === 'dark' ? <Sun className="w-5 h-5 text-gray-500 dark:text-gray-400" /> : <Moon className="w-5 h-5 text-gray-500" />}
         </button>
 
         {/* Notifications */}

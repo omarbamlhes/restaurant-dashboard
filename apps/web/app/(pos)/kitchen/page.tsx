@@ -284,7 +284,7 @@ export default function KitchenPage() {
                         <div
                           key={order.id}
                           className={cn(
-                            'bg-white dark:bg-dark-card rounded-xl border-2 p-4 transition-all',
+                            'bg-white dark:bg-dark-card rounded-xl border-2 p-4 transition-all kitchen-card-enter',
                             col.cardBorder,
                             overdue && 'border-red-500 dark:border-red-500 shadow-red-100 dark:shadow-red-900/20 shadow-md',
                           )}

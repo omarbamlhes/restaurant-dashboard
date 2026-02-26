@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { UtensilsCrossed, Plus, Pencil, Trash2, X, Tag, DollarSign, Clock } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
 
@@ -61,8 +62,8 @@ export default function MenuPage() {
       ]);
       setItems(itemsRes.data);
       setCategories(catsRes.data);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل تحميل بيانات القائمة');
     } finally {
       setLoading(false);
     }
@@ -113,9 +114,10 @@ export default function MenuPage() {
         await api.post('/menu', payload);
       }
       setShowModal(false);
+      toast.success(editingId ? 'تم تعديل الصنف' : 'تم إضافة الصنف');
       fetchData();
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل حفظ الصنف');
     } finally {
       setSaving(false);
     }
@@ -126,9 +128,10 @@ export default function MenuPage() {
     try {
       await api.delete(`/menu/${deleteId}`);
       setDeleteId(null);
+      toast.success('تم حذف الصنف');
       fetchData();
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل حذف الصنف');
     }
   }
 
@@ -139,9 +142,10 @@ export default function MenuPage() {
       await api.post('/menu/categories', payload);
       setShowCategoryModal(false);
       setCatForm({ name: '', nameAr: '', sortOrder: '' });
+      toast.success('تم إضافة الفئة');
       fetchData();
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل إضافة الفئة');
     }
   }
 

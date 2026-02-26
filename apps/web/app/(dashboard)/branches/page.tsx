@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Building2, Plus, Pencil, X, MapPin, Star, Package, Users } from 'lucide-react';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatNumber } from '@/lib/utils';
 
@@ -33,8 +34,8 @@ export default function BranchesPage() {
     try {
       const { data } = await api.get('/branches');
       setBranches(data);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل تحميل بيانات الفروع');
     } finally {
       setLoading(false);
     }
@@ -79,9 +80,10 @@ export default function BranchesPage() {
         await api.post('/branches', payload);
       }
       setShowModal(false);
+      toast.success(editingId ? 'تم تعديل الفرع' : 'تم إضافة الفرع');
       fetchBranches();
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل حفظ بيانات الفرع');
     } finally {
       setSaving(false);
     }

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
 
@@ -76,15 +77,15 @@ export default function OrdersPage() {
       const { data } = await api.get('/orders', { params });
       setOrders(data.data);
       setTotal(data.total);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل تحميل الطلبات');
     } finally {
       setLoading(false);
     }
   }, [page, statusFilter, typeFilter, branchFilter]);
 
   useEffect(() => {
-    api.get('/branches').then(res => setBranches(res.data)).catch(console.error);
+    api.get('/branches').then(res => setBranches(res.data)).catch(() => toast.error('فشل تحميل الفروع'));
   }, []);
 
   useEffect(() => {
@@ -98,8 +99,8 @@ export default function OrdersPage() {
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
+      toast.error('فشل تحديث حالة الطلب');
     }
   }
 

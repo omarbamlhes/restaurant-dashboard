@@ -53,7 +53,7 @@ export default function EmployeesPage() {
 
   // Fetch branches once on mount (independent of filters)
   useEffect(() => {
-    api.get('/branches').then((res) => setBranches(res.data)).catch(console.error);
+    api.get('/branches').then((res) => setBranches(res.data)).catch(() => toast.error('فشل تحميل الفروع'));
   }, []);
 
   async function fetchEmployees() {

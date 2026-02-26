@@ -7,6 +7,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 
@@ -65,7 +66,7 @@ export default function AnalyticsPage() {
         setProfits(profitRes.data);
         setPeakHours(peakRes.data);
       })
-      .catch(console.error)
+      .catch(() => toast.error('فشل تحميل بيانات التحليلات'))
       .finally(() => setLoading(false));
   }, [period]);
 

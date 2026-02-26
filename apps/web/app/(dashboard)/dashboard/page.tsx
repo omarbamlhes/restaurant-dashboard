@@ -7,6 +7,7 @@ import SalesChart from '@/components/charts/SalesChart';
 import RecentOrders from '@/components/dashboard/RecentOrders';
 import TopItems from '@/components/dashboard/TopItems';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { formatSAR } from '@/lib/utils';
 
@@ -31,7 +32,7 @@ export default function DashboardPage() {
   useEffect(() => {
     api.get('/analytics/overview')
       .then((res) => setData(res.data))
-      .catch(console.error)
+      .catch(() => toast.error('فشل تحميل بيانات لوحة التحكم'))
       .finally(() => setLoading(false));
   }, []);
 

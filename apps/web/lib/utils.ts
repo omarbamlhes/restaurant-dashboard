@@ -6,11 +6,11 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatSAR(amount: number): string {
-  return new Intl.NumberFormat('ar-SA', {
-    style: 'currency',
-    currency: 'SAR',
+  const formatted = new Intl.NumberFormat('ar-SA', {
     minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(amount);
+  return `${formatted} \u{E900}`;
 }
 
 export function formatNumber(num: number): string {

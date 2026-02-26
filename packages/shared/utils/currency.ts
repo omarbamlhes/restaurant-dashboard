@@ -1,9 +1,9 @@
 export function formatSAR(amount: number, locale = 'ar-SA'): string {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'SAR',
+  const formatted = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(amount);
+  return `${formatted} \u{E900}`;
 }
 
 export function formatNumber(num: number, locale = 'ar-SA'): string {

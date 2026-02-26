@@ -312,11 +312,11 @@ export default function MenuPage() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">السعر (ر.س) *</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">السعر ({'\u{E900}'}) *</label>
                   <input type="number" step="0.01" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} className="input-field text-sm" dir="ltr" placeholder="18.00" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">التكلفة (ر.س)</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">التكلفة ({'\u{E900}'})</label>
                   <input type="number" step="0.01" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} className="input-field text-sm" dir="ltr" placeholder="6.00" />
                 </div>
                 <div>

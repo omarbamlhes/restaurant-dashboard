@@ -40,10 +40,10 @@ export default function SalesChart({ data }: SalesChartProps) {
               border: '1px solid #334155',
               borderRadius: '12px',
               direction: 'rtl',
-              fontFamily: 'IBM Plex Sans Arabic',
+              fontFamily: 'IBM Plex Sans Arabic, Saudi Riyal',
             }}
             formatter={(value: number, name: string) => [
-              `${value.toLocaleString('ar-SA')} ${name === 'revenue' ? 'ر.س' : 'طلب'}`,
+              `${value.toLocaleString('ar-SA')} ${name === 'revenue' ? '\u{E900}' : 'طلب'}`,
               name === 'revenue' ? 'الإيرادات' : 'الطلبات',
             ]}
           />

@@ -42,7 +42,7 @@ const tooltipStyle = {
   border: '1px solid #334155',
   borderRadius: '12px',
   direction: 'rtl' as const,
-  fontFamily: 'IBM Plex Sans Arabic',
+  fontFamily: 'IBM Plex Sans Arabic, Saudi Riyal',
 };
 
 type Tab = 'sales' | 'profit' | 'peak';
@@ -206,7 +206,7 @@ export default function ReportsPage() {
                 <Tooltip
                   contentStyle={tooltipStyle}
                   formatter={(value: number, name: string) => [
-                    `${value.toLocaleString('ar-SA')} ${name === 'revenue' ? 'ر.س' : 'طلب'}`,
+                    `${value.toLocaleString('ar-SA')} ${name === 'revenue' ? '\u{E900}' : 'طلب'}`,
                     name === 'revenue' ? 'الإيرادات' : 'الطلبات',
                   ]}
                 />
@@ -325,7 +325,7 @@ export default function ReportsPage() {
                 <Tooltip
                   contentStyle={tooltipStyle}
                   formatter={(value: number, name: string) => [
-                    name === 'orders' ? `${value} طلب` : `${value.toLocaleString('ar-SA')} ر.س`,
+                    name === 'orders' ? `${value} طلب` : `${value.toLocaleString('ar-SA')} \u{E900}`,
                     name === 'orders' ? 'الطلبات' : 'الإيرادات',
                   ]}
                 />

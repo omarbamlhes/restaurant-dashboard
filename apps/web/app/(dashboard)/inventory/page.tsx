@@ -7,6 +7,7 @@ import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface Ingredient {
   id: string;
@@ -243,7 +244,7 @@ export default function InventoryPage() {
                         </div>
                       </td>
                       <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{ing.unit}</td>
-                      <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(Number(ing.costPerUnit))}</td>
+                      <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(Number(ing.costPerUnit))} <SARSymbol /></td>
                       <td className="p-4">
                         <span className={cn('text-sm font-medium', isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100')}>
                           {formatNumber(Number(ing.currentStock))}

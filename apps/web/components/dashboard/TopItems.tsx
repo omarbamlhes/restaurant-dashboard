@@ -1,6 +1,7 @@
 'use client';
 
 import { formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface TopItem {
   name: string;
@@ -26,7 +27,7 @@ export default function TopItems({ items }: { items: TopItem[] }) {
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.nameAr}</span>
               </div>
               <div className="text-left">
-                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatSAR(item.revenue)}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatSAR(item.revenue)} <SARSymbol /></span>
                 <span className="text-xs text-gray-400 dark:text-gray-500 mr-2">{item.quantity} طلب</span>
               </div>
             </div>

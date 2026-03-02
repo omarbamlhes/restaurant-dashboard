@@ -12,9 +12,12 @@ import {
   Truck,
   Store,
   AlertCircle,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useSocket } from '@/hooks/useSocket';
 
 // --- Types ---
 
@@ -39,6 +42,7 @@ interface Order {
   status: string;
   total: number;
   createdAt: string;
+  branchId: string;
   branch?: { nameAr: string };
   items: OrderItem[];
 }
@@ -99,8 +103,16 @@ export default function KitchenPage() {
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [now, setNow] = useState(Date.now());
-  const prevPendingCount = useRef(0);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
+
+  // WebSocket connection
+  const { isConnected, socket } = useSocket();
+
+  // Refs to avoid stale closures in socket handlers
+  const selectedBranchRef = useRef(selectedBranch);
+  selectedBranchRef.current = selectedBranch;
+  const soundEnabledRef = useRef(soundEnabled);
+  soundEnabledRef.current = soundEnabled;
 
   // Live clock + elapsed time refresh every 30s
   useEffect(() => {
@@ -113,7 +125,7 @@ export default function KitchenPage() {
     api.get('/branches').then((res) => setBranches(res.data)).catch(console.error);
   }, []);
 
-  // Fetch orders
+  // Fetch orders (used for initial load + fallback polling)
   const fetchOrders = useCallback(async () => {
     try {
       const params: Record<string, string | number> = { limit: 50 };
@@ -122,41 +134,97 @@ export default function KitchenPage() {
       const activeOrders: Order[] = (data.data || data).filter(
         (o: Order) => o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'READY',
       );
-
-      // Sound alert: new pending orders
-      const newPendingCount = activeOrders.filter((o) => o.status === 'PENDING').length;
-      if (soundEnabled && newPendingCount > prevPendingCount.current && prevPendingCount.current !== 0) {
-        playBeep();
-      }
-      prevPendingCount.current = newPendingCount;
-
       setOrders(activeOrders);
     } catch (e) {
       console.error('Failed to fetch orders:', e);
     } finally {
       setLoading(false);
     }
-  }, [selectedBranch, soundEnabled]);
+  }, [selectedBranch]);
 
-  // Initial fetch + polling every 10s
+  // Initial fetch on mount + when branch changes
   useEffect(() => {
     setLoading(true);
     fetchOrders();
-    const interval = setInterval(fetchOrders, 10000);
-    return () => clearInterval(interval);
   }, [fetchOrders]);
 
-  // Advance order status
+  // Fallback polling only when WebSocket is disconnected
+  useEffect(() => {
+    if (isConnected) return;
+    const interval = setInterval(fetchOrders, 10000);
+    return () => clearInterval(interval);
+  }, [isConnected, fetchOrders]);
+
+  // WebSocket event listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewOrder = (order: Order) => {
+      if (!['PENDING', 'PREPARING', 'READY'].includes(order.status)) return;
+      if (selectedBranchRef.current && order.branchId !== selectedBranchRef.current) return;
+
+      setOrders((prev) => {
+        if (prev.some((o) => o.id === order.id)) return prev;
+        return [...prev, order];
+      });
+      if (soundEnabledRef.current) playBeep();
+    };
+
+    const handleStatusChanged = (order: Order) => {
+      setOrders((prev) => {
+        if (['PENDING', 'PREPARING', 'READY'].includes(order.status)) {
+          const exists = prev.some((o) => o.id === order.id);
+          if (exists) {
+            return prev.map((o) => (o.id === order.id ? { ...o, ...order } : o));
+          }
+          if (selectedBranchRef.current && order.branchId !== selectedBranchRef.current) return prev;
+          return [...prev, order];
+        }
+        // COMPLETED or CANCELLED - remove from active view
+        return prev.filter((o) => o.id !== order.id);
+      });
+    };
+
+    socket.on('newOrder', handleNewOrder);
+    socket.on('orderStatusChanged', handleStatusChanged);
+
+    return () => {
+      socket.off('newOrder', handleNewOrder);
+      socket.off('orderStatusChanged', handleStatusChanged);
+    };
+  }, [socket]);
+
+  // Advance order status with optimistic update
   async function advanceStatus(orderId: string, currentStatus: string) {
     const idx = statusFlow.indexOf(currentStatus);
     if (idx < 0 || idx >= statusFlow.length - 1) return;
+    const newStatus = statusFlow[idx + 1];
 
     setUpdatingIds((prev) => new Set(prev).add(orderId));
+
+    // Optimistic update
+    setOrders((prev) => {
+      if (newStatus === 'COMPLETED') {
+        return prev.filter((o) => o.id !== orderId);
+      }
+      return prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o));
+    });
+
     try {
-      await api.put(`/orders/${orderId}/status`, { status: statusFlow[idx + 1] });
-      await fetchOrders();
+      await api.put(`/orders/${orderId}/status`, { status: newStatus });
+      // WebSocket will confirm the update; if disconnected, refetch
+      if (!isConnected) await fetchOrders();
     } catch (e) {
       console.error('Failed to update status:', e);
+      // Revert optimistic update
+      setOrders((prev) => {
+        if (newStatus === 'COMPLETED') {
+          // Can't easily revert removal, refetch instead
+          fetchOrders();
+          return prev;
+        }
+        return prev.map((o) => (o.id === orderId ? { ...o, status: currentStatus } : o));
+      });
     } finally {
       setUpdatingIds((prev) => {
         const next = new Set(prev);
@@ -235,6 +303,20 @@ export default function KitchenPage() {
           >
             {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
           </button>
+
+          {/* Connection indicator */}
+          <div
+            className={cn(
+              'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg',
+              isConnected
+                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+            )}
+            title={isConnected ? 'متصل - تحديث لحظي' : 'غير متصل - تحديث كل 10 ثواني'}
+          >
+            {isConnected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+            <span className="hidden md:inline">{isConnected ? 'متصل' : 'غير متصل'}</span>
+          </div>
 
           {/* Clock */}
           <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-400">

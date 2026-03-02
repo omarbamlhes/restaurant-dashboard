@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           toastOptions={{
             style: {
               direction: 'rtl',
-              fontFamily: 'IBM Plex Sans Arabic, Saudi Riyal, sans-serif',
+              fontFamily: 'IBM Plex Sans Arabic, sans-serif',
             },
           }}
         />

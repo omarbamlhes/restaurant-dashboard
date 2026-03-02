@@ -30,7 +30,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['IBM Plex Sans Arabic', 'Saudi Riyal', 'sans-serif'],
+        sans: ['IBM Plex Sans Arabic', 'sans-serif'],
       },
     },
   },

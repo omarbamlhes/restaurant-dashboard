@@ -1,6 +1,7 @@
 'use client';
 
 import { cn, formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface Order {
   id: string;
@@ -49,7 +50,7 @@ export default function RecentOrders({ orders }: { orders: Order[] }) {
                 <span className={cn('text-xs px-2.5 py-1 rounded-lg font-medium', status.class)}>
                   {status.label}
                 </span>
-                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatSAR(order.total)}</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatSAR(order.total)} <SARSymbol /></span>
               </div>
             </div>
           );

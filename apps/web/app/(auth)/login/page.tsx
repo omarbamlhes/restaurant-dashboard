@@ -10,18 +10,22 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const { login } = useAuthStore();
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
     try {
       await login(email, password);
       toast.success('مرحبا بك!');
       router.push('/dashboard');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'بيانات الدخول غير صحيحة');
+      const msg = err.response?.data?.message || err.message || 'بيانات الدخول غير صحيحة';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -60,6 +64,12 @@ export default function LoginPage() {
             required
           />
         </div>
+
+        {error && (
+          <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        )}
 
         <button type="submit" disabled={loading} className="btn-primary w-full disabled:opacity-50">
           {loading ? 'جاري الدخول...' : 'دخول'}

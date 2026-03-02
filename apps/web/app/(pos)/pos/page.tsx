@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 // --- Types ---
 
@@ -359,7 +360,7 @@ export default function POSPage() {
 
                       {/* Price */}
                       <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                        {formatSAR(item.price)}
+                        {formatSAR(item.price)} <SARSymbol />
                       </span>
                     </button>
                   );
@@ -411,11 +412,11 @@ export default function POSPage() {
                         {item.nameAr}
                       </p>
                       <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">
-                        {formatSAR(item.price)}
+                        {formatSAR(item.price)} <SARSymbol />
                       </p>
                     </div>
                     <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                      {formatSAR(item.price * item.quantity)}
+                      {formatSAR(item.price * item.quantity)} <SARSymbol />
                     </p>
                   </div>
 
@@ -485,7 +486,7 @@ export default function POSPage() {
                   step="0.01"
                   value={discount || ''}
                   onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                  placeholder={`خصم (\u{E900})`}
+                  placeholder="خصم (ريال)"
                   className="flex-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-dark-hover border border-gray-200 dark:border-dark-border text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
                   dir="ltr"
                 />
@@ -496,21 +497,21 @@ export default function POSPage() {
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500 dark:text-gray-400">
                 <span>المجموع الفرعي</span>
-                <span>{formatSAR(subtotal)}</span>
+                <span>{formatSAR(subtotal)} <SARSymbol /></span>
               </div>
               <div className="flex justify-between text-gray-500 dark:text-gray-400">
                 <span>ضريبة (15%)</span>
-                <span>{formatSAR(vat)}</span>
+                <span>{formatSAR(vat)} <SARSymbol /></span>
               </div>
               {discount > 0 && (
                 <div className="flex justify-between text-rose-500">
                   <span>خصم</span>
-                  <span>-{formatSAR(discount)}</span>
+                  <span>-{formatSAR(discount)} <SARSymbol /></span>
                 </div>
               )}
               <div className="flex justify-between text-lg font-bold text-gray-900 dark:text-white pt-1.5 border-t border-gray-200 dark:border-dark-border">
                 <span>الإجمالي</span>
-                <span className="text-primary-600 dark:text-primary-400">{formatSAR(total)}</span>
+                <span className="text-primary-600 dark:text-primary-400">{formatSAR(total)} <SARSymbol /></span>
               </div>
             </div>
 

@@ -7,6 +7,7 @@ import EmptyState from '@/components/shared/EmptyState';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface Category {
   id: string;
@@ -244,7 +245,7 @@ export default function MenuPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{formatSAR(item.price)}</span>
+                    <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{formatSAR(item.price)} <SARSymbol /></span>
                   </div>
                   {item.preparationTime && (
                     <div className="flex items-center gap-1 text-xs text-gray-400">
@@ -312,11 +313,11 @@ export default function MenuPage() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">السعر ({'\u{E900}'}) *</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">السعر (<SARSymbol />) *</label>
                   <input type="number" step="0.01" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} className="input-field text-sm" dir="ltr" placeholder="18.00" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">التكلفة ({'\u{E900}'})</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">التكلفة (<SARSymbol />)</label>
                   <input type="number" step="0.01" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} className="input-field text-sm" dir="ltr" placeholder="6.00" />
                 </div>
                 <div>

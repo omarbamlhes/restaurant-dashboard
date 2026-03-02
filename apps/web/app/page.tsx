@@ -192,10 +192,10 @@ export default function LandingPage() {
                 {/* Mock stats */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                   {[
-                    { label: 'إيرادات اليوم', value: '١٢,٤٥٠ \u{E900}', color: 'text-emerald-400' },
+                    { label: 'إيرادات اليوم', value: '١٢,٤٥٠ ريال', color: 'text-emerald-400' },
                     { label: 'الطلبات', value: '٨٤', color: 'text-blue-400' },
-                    { label: 'الأرباح', value: '٤,٢٠٠ \u{E900}', color: 'text-purple-400' },
-                    { label: 'متوسط الطلب', value: '١٤٨ \u{E900}', color: 'text-amber-400' },
+                    { label: 'الأرباح', value: '٤,٢٠٠ ريال', color: 'text-purple-400' },
+                    { label: 'متوسط الطلب', value: '١٤٨ ريال', color: 'text-amber-400' },
                   ].map((s, i) => (
                     <div key={i} className="bg-dark-card rounded-xl p-4">
                       <p className="text-xs text-gray-500 mb-1">{s.label}</p>

@@ -3,7 +3,7 @@ export function formatSAR(amount: number, locale = 'ar-SA'): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
-  return `${formatted} \u{E900}`;
+  return formatted;
 }
 
 export function formatNumber(num: number, locale = 'ar-SA'): string {

@@ -10,6 +10,7 @@ import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface SalesData {
   date: string;
@@ -44,7 +45,7 @@ const tooltipStyle = {
   border: '1px solid #334155',
   borderRadius: '12px',
   direction: 'rtl' as const,
-  fontFamily: 'IBM Plex Sans Arabic, Saudi Riyal',
+  fontFamily: 'IBM Plex Sans Arabic',
 };
 
 export default function AnalyticsPage() {
@@ -125,7 +126,7 @@ export default function AnalyticsPage() {
             </div>
             <span className="text-sm text-gray-500 dark:text-gray-400">إجمالي الإيرادات</span>
           </div>
-          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatSAR(totalRevenue)}</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatSAR(totalRevenue)} <SARSymbol /></p>
         </div>
         <div className="stat-card animate-fade-in-up">
           <div className="flex items-center gap-3 mb-3">
@@ -143,7 +144,7 @@ export default function AnalyticsPage() {
             </div>
             <span className="text-sm text-gray-500 dark:text-gray-400">متوسط الطلب</span>
           </div>
-          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatSAR(avgOrder)}</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatSAR(avgOrder)} <SARSymbol /></p>
         </div>
         <div className="stat-card animate-fade-in-up">
           <div className="flex items-center gap-3 mb-3">
@@ -173,7 +174,7 @@ export default function AnalyticsPage() {
             <Tooltip
               contentStyle={tooltipStyle}
               formatter={(value: number, name: string) => [
-                `${value.toLocaleString('ar-SA')} ${name === 'revenue' ? '\u{E900}' : 'طلب'}`,
+                `${value.toLocaleString('ar-SA')} ${name === 'revenue' ? 'ريال' : 'طلب'}`,
                 name === 'revenue' ? 'الإيرادات' : 'الطلبات',
               ]}
             />
@@ -196,7 +197,7 @@ export default function AnalyticsPage() {
               <Tooltip
                 contentStyle={tooltipStyle}
                 formatter={(value: number, name: string) => [
-                  name === 'orders' ? `${value} طلب` : `${value.toLocaleString('ar-SA')} \u{E900}`,
+                  name === 'orders' ? `${value} طلب` : `${value.toLocaleString('ar-SA')} ريال`,
                   name === 'orders' ? 'الطلبات' : 'الإيرادات',
                 ]}
               />
@@ -226,7 +227,7 @@ export default function AnalyticsPage() {
               </Pie>
               <Tooltip
                 contentStyle={tooltipStyle}
-                formatter={(value: number) => [`${value.toLocaleString('ar-SA')} \u{E900}`, 'الإيرادات']}
+                formatter={(value: number) => [`${value.toLocaleString('ar-SA')} ريال`, 'الإيرادات']}
               />
               <Legend
                 formatter={(value) => <span className="text-sm text-gray-400">{value}</span>}
@@ -268,9 +269,9 @@ export default function AnalyticsPage() {
                       {item.category}
                     </span>
                   </td>
-                  <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(item.unitPrice)}</td>
-                  <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(item.unitCost)}</td>
-                  <td className="p-4 text-sm font-medium text-emerald-600 dark:text-emerald-400">{formatSAR(item.profitPerItem)}</td>
+                  <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(item.unitPrice)} <SARSymbol /></td>
+                  <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(item.unitCost)} <SARSymbol /></td>
+                  <td className="p-4 text-sm font-medium text-emerald-600 dark:text-emerald-400">{formatSAR(item.profitPerItem)} <SARSymbol /></td>
                   <td className="p-4">
                     <div className="flex items-center gap-2">
                       <div className="w-16 h-1.5 bg-gray-100 dark:bg-dark-hover rounded-full overflow-hidden">
@@ -285,7 +286,7 @@ export default function AnalyticsPage() {
                     </div>
                   </td>
                   <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatNumber(item.totalSold)}</td>
-                  <td className="p-4 text-sm font-semibold text-gray-900 dark:text-gray-100">{formatSAR(item.totalRevenue)}</td>
+                  <td className="p-4 text-sm font-semibold text-gray-900 dark:text-gray-100">{formatSAR(item.totalRevenue)} <SARSymbol /></td>
                 </tr>
               ))}
             </tbody>

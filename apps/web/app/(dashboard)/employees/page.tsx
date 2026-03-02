@@ -7,6 +7,7 @@ import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface Employee {
   id: string;
@@ -242,7 +243,7 @@ export default function EmployeesPage() {
                     <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{emp.branch.nameAr}</td>
                     <td className="p-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{emp.phone || '—'}</td>
                     <td className="p-4 text-sm text-gray-700 dark:text-gray-300">
-                      {emp.salary ? formatSAR(Number(emp.salary)) : '—'}
+                      {emp.salary ? <>{formatSAR(Number(emp.salary))} <SARSymbol /></> : '—'}
                     </td>
                     <td className="p-4">
                       <span className={cn(

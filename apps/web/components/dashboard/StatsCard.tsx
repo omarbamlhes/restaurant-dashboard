@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 
 interface StatsCardProps {
   title: string;
-  value: string;
+  value: React.ReactNode;
   change?: number;
   icon: LucideIcon;
   color: 'emerald' | 'blue' | 'amber' | 'purple' | 'rose';

@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
+import { OrdersGateway } from './orders.gateway';
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ordersGateway: OrdersGateway,
+  ) {}
 
   private async getBranchIds(restaurantId: string) {
     const branches = await this.prisma.branch.findMany({
@@ -68,7 +72,7 @@ export class OrdersService {
     const discount = dto.discount || 0;
     const total = subtotal + tax - discount;
 
-    return this.prisma.order.create({
+    const order = await this.prisma.order.create({
       data: {
         orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`,
         type: dto.type,
@@ -79,8 +83,12 @@ export class OrdersService {
         total,
         items: { create: itemsData },
       },
-      include: { items: { include: { menuItem: { select: { nameAr: true } } } } },
+      include: { branch: { select: { nameAr: true } }, items: { include: { menuItem: { select: { nameAr: true } } } } },
     });
+
+    this.ordersGateway.emitNewOrder(restaurantId, order);
+
+    return order;
   }
 
   async findOne(id: string, restaurantId: string) {
@@ -95,7 +103,15 @@ export class OrdersService {
 
   async updateStatus(id: string, restaurantId: string, dto: UpdateStatusDto) {
     await this.findOne(id, restaurantId);
-    return this.prisma.order.update({ where: { id }, data: { status: dto.status } });
+    const order = await this.prisma.order.update({
+      where: { id },
+      data: { status: dto.status },
+      include: { branch: { select: { nameAr: true } }, items: { include: { menuItem: { select: { nameAr: true } } } } },
+    });
+
+    this.ordersGateway.emitOrderStatusChanged(restaurantId, order);
+
+    return order;
   }
 
   async getStats(restaurantId: string) {

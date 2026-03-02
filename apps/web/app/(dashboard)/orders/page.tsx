@@ -7,6 +7,7 @@ import EmptyState from '@/components/shared/EmptyState';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 const statusMap: Record<string, { label: string; class: string }> = {
   PENDING: { label: 'جديد', class: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' },
@@ -198,7 +199,7 @@ export default function OrdersPage() {
                         <span className="text-sm text-gray-700 dark:text-gray-300">{order.branch?.nameAr || '—'}</span>
                       </td>
                       <td className="p-4">
-                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatSAR(order.total)}</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatSAR(order.total)} <SARSymbol /></span>
                       </td>
                       <td className="p-4">
                         <span className={cn('text-xs px-2.5 py-1 rounded-lg font-medium', status.class)}>
@@ -318,7 +319,7 @@ export default function OrdersPage() {
                       </span>
                       <span className="text-sm text-gray-900 dark:text-gray-100">{item.menuItem.nameAr}</span>
                     </div>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatSAR(item.totalPrice)}</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{formatSAR(item.totalPrice)} <SARSymbol /></span>
                   </div>
                 ))}
               </div>
@@ -328,21 +329,21 @@ export default function OrdersPage() {
             <div className="space-y-2 pt-4 border-t border-gray-200 dark:border-dark-border">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500 dark:text-gray-400">المجموع الفرعي</span>
-                <span className="text-gray-900 dark:text-gray-100">{formatSAR(selectedOrder.subtotal)}</span>
+                <span className="text-gray-900 dark:text-gray-100">{formatSAR(selectedOrder.subtotal)} <SARSymbol /></span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500 dark:text-gray-400">ضريبة (15%)</span>
-                <span className="text-gray-900 dark:text-gray-100">{formatSAR(selectedOrder.tax)}</span>
+                <span className="text-gray-900 dark:text-gray-100">{formatSAR(selectedOrder.tax)} <SARSymbol /></span>
               </div>
               {selectedOrder.discount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 dark:text-gray-400">خصم</span>
-                  <span className="text-rose-600 dark:text-rose-400">-{formatSAR(selectedOrder.discount)}</span>
+                  <span className="text-rose-600 dark:text-rose-400">-{formatSAR(selectedOrder.discount)} <SARSymbol /></span>
                 </div>
               )}
               <div className="flex justify-between text-base font-bold pt-2 border-t border-gray-200 dark:border-dark-border">
                 <span className="text-gray-900 dark:text-white">الإجمالي</span>
-                <span className="text-primary-600 dark:text-primary-400">{formatSAR(selectedOrder.total)}</span>
+                <span className="text-primary-600 dark:text-primary-400">{formatSAR(selectedOrder.total)} <SARSymbol /></span>
               </div>
             </div>
 

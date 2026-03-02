@@ -10,6 +10,7 @@ import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { formatSAR } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface OverviewData {
   todayRevenue: number;
@@ -51,7 +52,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">
         <StatsCard
           title="إيرادات اليوم"
-          value={formatSAR(data.todayRevenue)}
+          value={<>{formatSAR(data.todayRevenue)} <SARSymbol /></>}
           change={data.revenueChange}
           icon={DollarSign}
           color="emerald"
@@ -65,14 +66,14 @@ export default function DashboardPage() {
         />
         <StatsCard
           title="صافي الربح"
-          value={formatSAR(data.todayProfit)}
+          value={<>{formatSAR(data.todayProfit)} <SARSymbol /></>}
           change={data.profitChange}
           icon={TrendingUp}
           color="purple"
         />
         <StatsCard
           title="متوسط الطلب"
-          value={formatSAR(data.avgOrderValue)}
+          value={<>{formatSAR(data.avgOrderValue)} <SARSymbol /></>}
           change={data.avgChange}
           icon={Receipt}
           color="amber"

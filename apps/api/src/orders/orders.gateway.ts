@@ -62,4 +62,20 @@ export class OrdersGateway implements OnGatewayConnection, OnGatewayDisconnect {
   emitOrderStatusChanged(restaurantId: string, order: any) {
     this.server.to(`restaurant:${restaurantId}`).emit('orderStatusChanged', order);
   }
+
+  emitNewReservation(restaurantId: string, reservation: any) {
+    this.server.to(`restaurant:${restaurantId}`).emit('newReservation', reservation);
+  }
+
+  emitReservationUpdated(restaurantId: string, reservation: any) {
+    this.server.to(`restaurant:${restaurantId}`).emit('reservationUpdated', reservation);
+  }
+
+  emitTableStatusChanged(restaurantId: string, table: any) {
+    this.server.to(`restaurant:${restaurantId}`).emit('tableStatusChanged', table);
+  }
+
+  emitItemStationStatusChanged(restaurantId: string, data: any) {
+    this.server.to(`restaurant:${restaurantId}`).emit('itemStationStatusChanged', data);
+  }
 }

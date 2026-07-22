@@ -27,6 +27,9 @@ export class CreateMenuItemDto {
 
   @IsString()
   categoryId: string;
+
+  @IsOptional() @IsString()
+  stationId?: string;
 }
 
 export class UpdateMenuItemDto {
@@ -39,6 +42,7 @@ export class UpdateMenuItemDto {
   @IsOptional() @IsNumber() cost?: number;
   @IsOptional() @IsInt() preparationTime?: number;
   @IsOptional() @IsString() categoryId?: string;
+  @IsOptional() @IsString() stationId?: string;
 }
 
 export class CreateCategoryDto {

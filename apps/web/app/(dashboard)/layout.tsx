@@ -7,6 +7,7 @@ import Sidebar from '@/components/dashboard/Sidebar';
 import Topbar from '@/components/dashboard/Topbar';
 import Skeleton from '@/components/shared/Skeleton';
 import { useAuthStore } from '@/stores/authStore';
+import { canAccessRoute, getFirstAllowedRoute } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [isLoading, user, router]);
 
+  // Route-level permission check
+  useEffect(() => {
+    if (!isLoading && user && !canAccessRoute(user.role, pathname, user.permissions)) {
+      router.push(getFirstAllowedRoute(user.role, user.permissions));
+    }
+  }, [isLoading, user, pathname, router]);
+
   // Close mobile sidebar on route change
   useEffect(() => {
     setMobileOpen(false);
@@ -33,7 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-dark-bg flex">
+      <div className="min-h-screen bg-slate-50 dark:bg-dark-bg flex" role="status" aria-busy="true" aria-label="جاري تحميل لوحة التحكم">
         {/* Sidebar skeleton */}
         <div className="hidden md:block w-64 h-screen fixed top-0 right-0 bg-white dark:bg-dark-card border-l border-gray-200 dark:border-dark-border">
           <div className="h-16 flex items-center gap-2 px-4 border-b border-gray-200 dark:border-dark-border">
@@ -67,6 +75,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!user) return null;
+
+  // If user doesn't have access to current route, don't render (redirect is happening)
+  if (!canAccessRoute(user.role, pathname, user.permissions)) return null;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-dark-bg">

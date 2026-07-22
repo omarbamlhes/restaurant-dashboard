@@ -1,42 +1,46 @@
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Controller, Get, Query, Request } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { AnalyticsService } from './analytics.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { Roles } from '../common/roles.decorator';
+import { Permission } from '../common/permission.decorator';
+import { RestaurantHelper } from '../common/restaurant.helper';
 
 @Controller('analytics')
-@UseGuards(AuthGuard('jwt'))
+@Roles(UserRole.OWNER)
+@Permission('analytics')
 export class AnalyticsController {
   constructor(
     private analyticsService: AnalyticsService,
-    private prisma: PrismaService,
+    private restaurantHelper: RestaurantHelper,
   ) {}
 
-  private async getRestaurantId(userId: string): Promise<string> {
-    const r = await this.prisma.restaurant.findUnique({ where: { ownerId: userId } });
-    return r!.id;
-  }
-
   @Get('overview')
-  async getOverview(@Request() req) {
-    const rid = await this.getRestaurantId(req.user.sub);
-    return this.analyticsService.getOverview(rid);
+  async getOverview(@Request() req, @Query('branchId') branchId?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getOverview(rid, branchId);
   }
 
   @Get('sales')
-  async getSales(@Request() req, @Query('period') period?: string, @Query('from') from?: string, @Query('to') to?: string) {
-    const rid = await this.getRestaurantId(req.user.sub);
-    return this.analyticsService.getSales(rid, period, from, to);
+  async getSales(@Request() req, @Query('period') period?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('branchId') branchId?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getSales(rid, period, from, to, branchId);
   }
 
   @Get('profit')
-  async getProfitMargins(@Request() req) {
-    const rid = await this.getRestaurantId(req.user.sub);
-    return this.analyticsService.getProfitMargins(rid);
+  async getProfitMargins(@Request() req, @Query('branchId') branchId?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getProfitMargins(rid, branchId);
   }
 
   @Get('peak-hours')
-  async getPeakHours(@Request() req) {
-    const rid = await this.getRestaurantId(req.user.sub);
-    return this.analyticsService.getPeakHours(rid);
+  async getPeakHours(@Request() req, @Query('branchId') branchId?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getPeakHours(rid, branchId);
+  }
+
+  @Get('branches-comparison')
+  async getBranchComparison(@Request() req) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getBranchComparison(rid);
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { LucideIcon } from 'lucide-react';
+import { LucideIcon, TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface StatsCardProps {
@@ -49,18 +49,22 @@ export default function StatsCard({ title, value, change, icon: Icon, color }: S
           <Icon className={cn('w-6 h-6', colors.icon)} />
         </div>
         {change !== undefined && (
-          <span className={cn(
-            'text-xs font-semibold px-2 py-1 rounded-lg',
-            change >= 0
-              ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
-              : 'text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30',
-          )}>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg tabular-nums',
+              change >= 0
+                ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
+                : 'text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30',
+            )}
+            aria-label={`${change >= 0 ? 'ارتفاع' : 'انخفاض'} بنسبة ${Math.abs(change).toFixed(1)} بالمئة`}
+          >
+            {change >= 0 ? <TrendingUp className="w-3 h-3" aria-hidden /> : <TrendingDown className="w-3 h-3" aria-hidden />}
             {change >= 0 ? '+' : ''}{change.toFixed(1)}%
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{title}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{value}</p>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{title}</p>
     </div>
   );
 }

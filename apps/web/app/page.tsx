@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import RustaqIcon from '@/components/brand/RustaqIcon';
 import {
-  TrendingUp, BarChart3, Users, Package, Bell, FileText, Settings, Shield,
+  BarChart3, Users, Package, Bell, FileText, Settings, Shield,
   ChevronLeft, Star, Zap, Globe, ArrowLeft, Menu, X, ChefHat, Store,
   Clock, Smartphone, PieChart, BrainCircuit,
 } from 'lucide-react';
@@ -89,15 +90,18 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-gray-900 dark:text-white">رستق</span>
+              <RustaqIcon size={40} />
+              <span className="text-xl font-bold" style={{
+                background: 'linear-gradient(135deg, #3cb878 0%, #2d8a5e 50%, #e8c352 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}>رستق</span>
             </div>
 
             {/* Desktop nav */}
             <div className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">المميزات</a>
+              <Link href="/pricing" className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">الأسعار</Link>
               <a href="#stats" className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">الأرقام</a>
               <a href="#testimonials" className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">آراء العملاء</a>
             </div>
@@ -123,6 +127,7 @@ export default function LandingPage() {
           <div className="md:hidden bg-white dark:bg-dark-card border-t border-gray-200 dark:border-dark-border">
             <div className="px-4 py-4 space-y-3">
               <a href="#features" onClick={() => setMobileMenuOpen(false)} className="block text-sm text-gray-600 dark:text-gray-400 py-2">المميزات</a>
+              <Link href="/pricing" onClick={() => setMobileMenuOpen(false)} className="block text-sm text-gray-600 dark:text-gray-400 py-2">الأسعار</Link>
               <a href="#stats" onClick={() => setMobileMenuOpen(false)} className="block text-sm text-gray-600 dark:text-gray-400 py-2">الأرقام</a>
               <a href="#testimonials" onClick={() => setMobileMenuOpen(false)} className="block text-sm text-gray-600 dark:text-gray-400 py-2">آراء العملاء</a>
               <div className="pt-3 border-t border-gray-100 dark:border-dark-border flex gap-3">
@@ -354,10 +359,12 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
             <div className="md:col-span-2">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold text-white">رستق</span>
+                <RustaqIcon size={40} />
+                <span className="text-xl font-bold" style={{
+                  background: 'linear-gradient(135deg, #3cb878 0%, #2d8a5e 50%, #e8c352 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}>رستق</span>
               </div>
               <p className="text-sm text-gray-400 leading-relaxed max-w-md">
                 منصة إدارة المطاعم الذكية. نساعد أصحاب المطاعم والمقاهي في السعودية
@@ -369,6 +376,7 @@ export default function LandingPage() {
               <h4 className="text-sm font-bold text-white mb-4">المنتج</h4>
               <ul className="space-y-2">
                 <li><a href="#features" className="text-sm text-gray-400 hover:text-primary-400 transition-colors">المميزات</a></li>
+                <li><Link href="/pricing" className="text-sm text-gray-400 hover:text-primary-400 transition-colors">الأسعار</Link></li>
                 <li><a href="#stats" className="text-sm text-gray-400 hover:text-primary-400 transition-colors">الأرقام</a></li>
                 <li><a href="#testimonials" className="text-sm text-gray-400 hover:text-primary-400 transition-colors">آراء العملاء</a></li>
               </ul>

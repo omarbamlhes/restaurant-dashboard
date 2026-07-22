@@ -14,10 +14,14 @@ import {
   AlertCircle,
   Wifi,
   WifiOff,
+  LogOut,
+  Check,
+  Flame,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useSocket } from '@/hooks/useSocket';
+import { useAuthStore } from '@/stores/authStore';
 
 // --- Types ---
 
@@ -26,13 +30,26 @@ interface Branch {
   nameAr: string;
 }
 
+interface KitchenStation {
+  id: string;
+  name: string;
+  nameAr: string;
+  color: string;
+  _count: { menuItems: number };
+}
+
 interface OrderItem {
   id: string;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
   notes?: string;
-  menuItem: { nameAr: string };
+  stationStatus: 'PENDING' | 'PREPARING' | 'DONE';
+  menuItem: {
+    nameAr: string;
+    stationId: string | null;
+    station: { id: string; nameAr: string; color: string } | null;
+  };
 }
 
 interface Order {
@@ -62,6 +79,8 @@ const columns = [
   { status: 'PREPARING', title: 'تحضير', colorClass: 'border-amber-500', headerBg: 'bg-amber-500', badgeBg: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300', cardBorder: 'border-amber-200 dark:border-amber-800', btnClass: 'bg-amber-600 hover:bg-amber-700 text-white', btnLabel: 'جاهز' },
   { status: 'READY', title: 'جاهز', colorClass: 'border-emerald-500', headerBg: 'bg-emerald-500', badgeBg: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300', cardBorder: 'border-emerald-200 dark:border-emerald-800', btnClass: 'bg-emerald-600 hover:bg-emerald-700 text-white', btnLabel: 'تم التسليم' },
 ] as const;
+
+const ITEM_STATUS_FLOW = ['PENDING', 'PREPARING', 'DONE'];
 
 // --- Helpers ---
 
@@ -97,9 +116,12 @@ function playBeep() {
 // --- Component ---
 
 export default function KitchenPage() {
+  const { logout } = useAuthStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [stations, setStations] = useState<KitchenStation[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedStation, setSelectedStation] = useState(''); // '' = all stations
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [now, setNow] = useState(Date.now());
@@ -120,9 +142,10 @@ export default function KitchenPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch branches once
+  // Fetch branches + stations once
   useEffect(() => {
     api.get('/branches').then((res) => setBranches(res.data)).catch(console.error);
+    api.get('/kitchen-stations').then((res) => setStations(res.data)).catch(console.error);
   }, []);
 
   // Fetch orders (used for initial load + fallback polling)
@@ -180,21 +203,36 @@ export default function KitchenPage() {
           if (selectedBranchRef.current && order.branchId !== selectedBranchRef.current) return prev;
           return [...prev, order];
         }
-        // COMPLETED or CANCELLED - remove from active view
         return prev.filter((o) => o.id !== order.id);
       });
     };
 
+    const handleItemStationChanged = (data: { orderId: string; itemId: string; stationStatus: string }) => {
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== data.orderId) return o;
+          return {
+            ...o,
+            items: o.items.map((item) =>
+              item.id === data.itemId ? { ...item, stationStatus: data.stationStatus as any } : item,
+            ),
+          };
+        }),
+      );
+    };
+
     socket.on('newOrder', handleNewOrder);
     socket.on('orderStatusChanged', handleStatusChanged);
+    socket.on('itemStationStatusChanged', handleItemStationChanged);
 
     return () => {
       socket.off('newOrder', handleNewOrder);
       socket.off('orderStatusChanged', handleStatusChanged);
+      socket.off('itemStationStatusChanged', handleItemStationChanged);
     };
   }, [socket]);
 
-  // Advance order status with optimistic update
+  // Advance whole order status (used in "all stations" mode or READY column)
   async function advanceStatus(orderId: string, currentStatus: string) {
     const idx = statusFlow.indexOf(currentStatus);
     if (idx < 0 || idx >= statusFlow.length - 1) return;
@@ -202,29 +240,16 @@ export default function KitchenPage() {
 
     setUpdatingIds((prev) => new Set(prev).add(orderId));
 
-    // Optimistic update
     setOrders((prev) => {
-      if (newStatus === 'COMPLETED') {
-        return prev.filter((o) => o.id !== orderId);
-      }
+      if (newStatus === 'COMPLETED') return prev.filter((o) => o.id !== orderId);
       return prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o));
     });
 
     try {
       await api.put(`/orders/${orderId}/status`, { status: newStatus });
-      // WebSocket will confirm the update; if disconnected, refetch
       if (!isConnected) await fetchOrders();
-    } catch (e) {
-      console.error('Failed to update status:', e);
-      // Revert optimistic update
-      setOrders((prev) => {
-        if (newStatus === 'COMPLETED') {
-          // Can't easily revert removal, refetch instead
-          fetchOrders();
-          return prev;
-        }
-        return prev.map((o) => (o.id === orderId ? { ...o, status: currentStatus } : o));
-      });
+    } catch {
+      fetchOrders();
     } finally {
       setUpdatingIds((prev) => {
         const next = new Set(prev);
@@ -234,19 +259,100 @@ export default function KitchenPage() {
     }
   }
 
-  // Group orders by status, sorted oldest first
+  // Advance single item station status
+  async function advanceItemStatus(orderId: string, itemId: string, currentStatus: string) {
+    const idx = ITEM_STATUS_FLOW.indexOf(currentStatus);
+    if (idx < 0 || idx >= ITEM_STATUS_FLOW.length - 1) return;
+    const newStatus = ITEM_STATUS_FLOW[idx + 1];
+
+    const key = `${orderId}-${itemId}`;
+    setUpdatingIds((prev) => new Set(prev).add(key));
+
+    // Optimistic update
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== orderId) return o;
+        return {
+          ...o,
+          items: o.items.map((item) =>
+            item.id === itemId ? { ...item, stationStatus: newStatus as any } : item,
+          ),
+        };
+      }),
+    );
+
+    try {
+      await api.put(`/orders/${orderId}/items/${itemId}/station-status`, { status: newStatus });
+    } catch {
+      fetchOrders();
+    } finally {
+      setUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
+  // Mark all items for a station in an order as next status
+  async function advanceAllStationItems(order: Order) {
+    const stationItems = getStationItems(order);
+    const pendingItems = stationItems.filter(i => i.stationStatus !== 'DONE');
+    if (pendingItems.length === 0) return;
+
+    for (const item of pendingItems) {
+      const idx = ITEM_STATUS_FLOW.indexOf(item.stationStatus);
+      if (idx < ITEM_STATUS_FLOW.length - 1) {
+        await advanceItemStatus(order.id, item.id, item.stationStatus);
+      }
+    }
+  }
+
+  // Filter items by selected station (items without a station appear everywhere)
+  function getStationItems(order: Order): OrderItem[] {
+    if (!selectedStation) return order.items;
+    return order.items.filter(
+      (item) => item.menuItem.stationId === selectedStation || !item.menuItem.stationId,
+    );
+  }
+
+  // Check if order has items for selected station
+  function hasStationItems(order: Order): boolean {
+    if (!selectedStation) return true;
+    return order.items.some(
+      (item) => item.menuItem.stationId === selectedStation || !item.menuItem.stationId,
+    );
+  }
+
+  // Get station-specific order status
+  function getStationOrderStatus(order: Order): string {
+    if (!selectedStation) return order.status;
+    const items = getStationItems(order);
+    if (items.length === 0) return order.status;
+    if (items.every(i => i.stationStatus === 'DONE')) return 'READY';
+    if (items.some(i => i.stationStatus === 'PREPARING' || i.stationStatus === 'DONE')) return 'PREPARING';
+    return 'PENDING';
+  }
+
+  // In station mode, group by station-specific status
   const grouped: Record<string, Order[]> = { PENDING: [], PREPARING: [], READY: [] };
   orders.forEach((o) => {
-    if (grouped[o.status]) grouped[o.status].push(o);
+    if (!hasStationItems(o)) return;
+    const status = selectedStation ? getStationOrderStatus(o) : o.status;
+    if (grouped[status]) grouped[status].push(o);
   });
   Object.values(grouped).forEach((arr) =>
     arr.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
   );
 
+  const totalActive = grouped.PENDING.length + grouped.PREPARING.length + grouped.READY.length;
+
   const currentTime = new Date(now).toLocaleTimeString('ar-SA', {
     hour: '2-digit',
     minute: '2-digit',
   });
+
+  const selectedStationInfo = stations.find(s => s.id === selectedStation);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -262,11 +368,49 @@ export default function KitchenPage() {
           </Link>
           <div className="flex items-center gap-2">
             <ChefHat className="w-6 h-6 text-primary-600 dark:text-primary-400" />
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">شاشة المطبخ</h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-white">
+              {selectedStationInfo ? selectedStationInfo.nameAr : 'شاشة المطبخ'}
+            </h1>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Station selector */}
+          {stations.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setSelectedStation('')}
+                className={cn(
+                  'text-xs px-3 py-2 rounded-lg font-medium transition-all',
+                  !selectedStation
+                    ? 'bg-primary-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-300 hover:bg-gray-200',
+                )}
+              >
+                الكل
+              </button>
+              {stations.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedStation(s.id)}
+                  className={cn(
+                    'text-xs px-3 py-2 rounded-lg font-medium transition-all flex items-center gap-1.5',
+                    selectedStation === s.id
+                      ? 'text-white shadow-md'
+                      : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-300 hover:bg-gray-200',
+                  )}
+                  style={selectedStation === s.id ? { backgroundColor: s.color } : undefined}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: selectedStation === s.id ? 'white' : s.color }}
+                  />
+                  {s.nameAr}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Branch selector */}
           <select
             value={selectedBranch}
@@ -323,6 +467,16 @@ export default function KitchenPage() {
             <Clock className="w-4 h-4" />
             <span className="font-mono">{currentTime}</span>
           </div>
+
+          {/* Logout */}
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-dark-hover"
+            title="تسجيل الخروج"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden md:inline">خروج</span>
+          </button>
         </div>
       </header>
 
@@ -361,6 +515,9 @@ export default function KitchenPage() {
                       const type = typeConfig[order.type];
                       const TypeIcon = type?.icon || Store;
                       const isUpdating = updatingIds.has(order.id);
+                      const stationItems = getStationItems(order);
+                      const totalItems = order.items.length;
+                      const showingPartial = selectedStation && stationItems.length < totalItems;
 
                       return (
                         <div
@@ -383,6 +540,11 @@ export default function KitchenPage() {
                                   {type.label}
                                 </span>
                               )}
+                              {showingPartial && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-dark-hover text-gray-400">
+                                  {stationItems.length}/{totalItems}
+                                </span>
+                              )}
                             </div>
                             <div className={cn(
                               'flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md',
@@ -398,15 +560,43 @@ export default function KitchenPage() {
 
                           {/* Items */}
                           <div className="space-y-1.5 mb-3">
-                            {order.items.map((item) => (
-                              <div key={item.id}>
+                            {stationItems.map((item) => (
+                              <div key={item.id} className="group/item">
                                 <div className="flex items-start gap-2">
                                   <span className="w-6 h-6 rounded-md bg-gray-100 dark:bg-dark-hover text-gray-700 dark:text-gray-300 text-xs flex items-center justify-center font-bold flex-shrink-0 mt-0.5">
                                     {item.quantity}
                                   </span>
-                                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 flex-1">
                                     {item.menuItem.nameAr}
                                   </span>
+
+                                  {/* Per-item station status (in station mode) */}
+                                  {selectedStation && (
+                                    <button
+                                      onClick={() => advanceItemStatus(order.id, item.id, item.stationStatus)}
+                                      disabled={item.stationStatus === 'DONE' || updatingIds.has(`${order.id}-${item.id}`)}
+                                      className={cn(
+                                        'flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg transition-all flex-shrink-0',
+                                        item.stationStatus === 'PENDING' && 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 hover:bg-blue-200',
+                                        item.stationStatus === 'PREPARING' && 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 hover:bg-amber-200',
+                                        item.stationStatus === 'DONE' && 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default',
+                                      )}
+                                    >
+                                      {item.stationStatus === 'PENDING' && <><Flame className="w-3 h-3" /> ابدأ</>}
+                                      {item.stationStatus === 'PREPARING' && <><Check className="w-3 h-3" /> جاهز</>}
+                                      {item.stationStatus === 'DONE' && <><Check className="w-3 h-3" /> تم</>}
+                                    </button>
+                                  )}
+
+                                  {/* Station badge (in all-stations mode) */}
+                                  {!selectedStation && item.menuItem.station && (
+                                    <span
+                                      className="text-[10px] px-1.5 py-0.5 rounded text-white flex-shrink-0"
+                                      style={{ backgroundColor: item.menuItem.station.color }}
+                                    >
+                                      {item.menuItem.station.nameAr}
+                                    </span>
+                                  )}
                                 </div>
                                 {item.notes && (
                                   <p className="text-xs text-amber-600 dark:text-amber-400 mr-8 mt-0.5">
@@ -418,18 +608,42 @@ export default function KitchenPage() {
                           </div>
 
                           {/* Action button */}
-                          <button
-                            onClick={() => advanceStatus(order.id, order.status)}
-                            disabled={isUpdating}
-                            className={cn(
-                              'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98]',
-                              col.btnClass,
-                              isUpdating && 'opacity-60 cursor-not-allowed',
-                            )}
-                            style={{ minHeight: '48px' }}
-                          >
-                            {isUpdating ? 'جاري التحديث...' : col.btnLabel}
-                          </button>
+                          {selectedStation ? (
+                            // Station mode: advance all items for this station
+                            <button
+                              onClick={() => advanceAllStationItems(order)}
+                              disabled={isUpdating || stationItems.every(i => i.stationStatus === 'DONE')}
+                              className={cn(
+                                'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98]',
+                                stationItems.every(i => i.stationStatus === 'DONE')
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default'
+                                  : col.btnClass,
+                                isUpdating && 'opacity-60 cursor-not-allowed',
+                              )}
+                              style={{ minHeight: '48px' }}
+                            >
+                              {stationItems.every(i => i.stationStatus === 'DONE')
+                                ? '✓ تم التحضير'
+                                : stationItems.some(i => i.stationStatus === 'PREPARING')
+                                  ? 'تم - جاهز ✓'
+                                  : 'ابدأ الكل'
+                              }
+                            </button>
+                          ) : (
+                            // All-stations mode: advance whole order
+                            <button
+                              onClick={() => advanceStatus(order.id, order.status)}
+                              disabled={isUpdating}
+                              className={cn(
+                                'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98]',
+                                col.btnClass,
+                                isUpdating && 'opacity-60 cursor-not-allowed',
+                              )}
+                              style={{ minHeight: '48px' }}
+                            >
+                              {isUpdating ? 'جاري التحديث...' : col.btnLabel}
+                            </button>
+                          )}
                         </div>
                       );
                     })

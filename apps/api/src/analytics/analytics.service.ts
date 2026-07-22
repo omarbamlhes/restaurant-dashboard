@@ -10,25 +10,66 @@ export class AnalyticsService {
     return branches.map((b) => b.id);
   }
 
-  async getOverview(restaurantId: string) {
-    const branchIds = await this.getBranchIds(restaurantId);
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+  // Resolve which branches a report should cover. When a branchId is passed it is
+  // validated against the restaurant (so one tenant can't read another's branch),
+  // otherwise all of the restaurant's branches are included.
+  private async resolveBranchIds(restaurantId: string, branchId?: string) {
+    if (branchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: branchId, restaurantId },
+        select: { id: true },
+      });
+      return branch ? [branch.id] : [];
+    }
+    return this.getBranchIds(restaurantId);
+  }
+
+  async getOverview(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+    const now = new Date();
+    const today = new Date(now); today.setHours(0, 0, 0, 0);
     const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
 
-    const [todayOrders, yesterdayOrders] = await Promise.all([
+    // Current week (Sat-Fri Saudi standard)
+    const dayOfWeek = now.getDay();
+    const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((dayOfWeek + 1) % 7));
+    const prevWeekStart = new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+
+    // Current month
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const [todayOrders, yesterdayOrders, thisWeekOrders, prevWeekOrders, thisMonthOrders, prevMonthOrders] = await Promise.all([
       this.prisma.order.findMany({
         where: { branchId: { in: branchIds }, createdAt: { gte: today }, status: { not: 'CANCELLED' } },
         include: { items: { include: { menuItem: { select: { name: true, nameAr: true, cost: true } } } } },
       }),
       this.prisma.order.findMany({
         where: { branchId: { in: branchIds }, createdAt: { gte: yesterday, lt: today }, status: { not: 'CANCELLED' } },
+        include: { items: { include: { menuItem: { select: { cost: true } } } } },
+      }),
+      this.prisma.order.findMany({
+        where: { branchId: { in: branchIds }, createdAt: { gte: weekStart }, status: { not: 'CANCELLED' } },
+        select: { total: true },
+      }),
+      this.prisma.order.findMany({
+        where: { branchId: { in: branchIds }, createdAt: { gte: prevWeekStart, lt: weekStart }, status: { not: 'CANCELLED' } },
+        select: { total: true },
+      }),
+      this.prisma.order.findMany({
+        where: { branchId: { in: branchIds }, createdAt: { gte: monthStart }, status: { not: 'CANCELLED' } },
+        select: { total: true },
+      }),
+      this.prisma.order.findMany({
+        where: { branchId: { in: branchIds }, createdAt: { gte: prevMonthStart, lt: monthStart }, status: { not: 'CANCELLED' } },
+        select: { total: true },
       }),
     ]);
 
+    // Today calculations
     const todayRevenue = todayOrders.reduce((s, o) => s + Number(o.total), 0);
     const yesterdayRevenue = yesterdayOrders.reduce((s, o) => s + Number(o.total), 0);
 
-    // Calculate profit
     let todayCost = 0;
     const itemCounts: Record<string, { name: string; nameAr: string; quantity: number; revenue: number }> = {};
     for (const order of todayOrders) {
@@ -43,11 +84,25 @@ export class AnalyticsService {
       }
     }
 
-    const todayProfit = todayRevenue - todayCost;
-    const avgOrderValue = todayOrders.length > 0 ? todayRevenue / todayOrders.length : 0;
+    let yesterdayCost = 0;
+    for (const order of yesterdayOrders) {
+      for (const item of order.items) {
+        yesterdayCost += Number(item.menuItem.cost || 0) * item.quantity;
+      }
+    }
 
-    const revenueChange = yesterdayRevenue > 0 ? ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100 : 0;
-    const ordersChange = yesterdayOrders.length > 0 ? ((todayOrders.length - yesterdayOrders.length) / yesterdayOrders.length) * 100 : 0;
+    const todayProfit = todayRevenue - todayCost;
+    const yesterdayProfit = yesterdayRevenue - yesterdayCost;
+    const avgOrderValue = todayOrders.length > 0 ? todayRevenue / todayOrders.length : 0;
+    const yesterdayAvg = yesterdayOrders.length > 0 ? yesterdayRevenue / yesterdayOrders.length : 0;
+
+    const calcChange = (curr: number, prev: number) => prev > 0 ? Math.round(((curr - prev) / prev) * 1000) / 10 : 0;
+
+    // Week & month summaries
+    const thisWeekRevenue = thisWeekOrders.reduce((s, o) => s + Number(o.total), 0);
+    const prevWeekRevenue = prevWeekOrders.reduce((s, o) => s + Number(o.total), 0);
+    const thisMonthRevenue = thisMonthOrders.reduce((s, o) => s + Number(o.total), 0);
+    const prevMonthRevenue = prevMonthOrders.reduce((s, o) => s + Number(o.total), 0);
 
     // Top 5 items
     const topItems = Object.values(itemCounts).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
@@ -85,23 +140,41 @@ export class AnalyticsService {
       orders: val.orders,
     }));
 
+    // Order type breakdown (today)
+    const ordersByType = {
+      DINE_IN: todayOrders.filter(o => o.type === 'DINE_IN').length,
+      TAKEAWAY: todayOrders.filter(o => o.type === 'TAKEAWAY').length,
+      DELIVERY: todayOrders.filter(o => o.type === 'DELIVERY').length,
+    };
+
     return {
       todayRevenue: Math.round(todayRevenue * 100) / 100,
       todayOrders: todayOrders.length,
       todayProfit: Math.round(todayProfit * 100) / 100,
       avgOrderValue: Math.round(avgOrderValue * 100) / 100,
-      revenueChange: Math.round(revenueChange * 10) / 10,
-      ordersChange: Math.round(ordersChange * 10) / 10,
-      profitChange: 0,
-      avgChange: 0,
+      revenueChange: calcChange(todayRevenue, yesterdayRevenue),
+      ordersChange: calcChange(todayOrders.length, yesterdayOrders.length),
+      profitChange: calcChange(todayProfit, yesterdayProfit),
+      avgChange: calcChange(avgOrderValue, yesterdayAvg),
+      // Weekly & monthly
+      thisWeekRevenue: Math.round(thisWeekRevenue * 100) / 100,
+      thisWeekOrders: thisWeekOrders.length,
+      weekRevenueChange: calcChange(thisWeekRevenue, prevWeekRevenue),
+      weekOrdersChange: calcChange(thisWeekOrders.length, prevWeekOrders.length),
+      thisMonthRevenue: Math.round(thisMonthRevenue * 100) / 100,
+      thisMonthOrders: thisMonthOrders.length,
+      monthRevenueChange: calcChange(thisMonthRevenue, prevMonthRevenue),
+      monthOrdersChange: calcChange(thisMonthOrders.length, prevMonthOrders.length),
+      // Breakdown
+      ordersByType,
       topItems,
       recentOrders,
       salesChart,
     };
   }
 
-  async getSales(restaurantId: string, period: string = 'daily', from?: string, to?: string) {
-    const branchIds = await this.getBranchIds(restaurantId);
+  async getSales(restaurantId: string, period: string = 'daily', from?: string, to?: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const startDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = to ? new Date(to + 'T23:59:59') : new Date();
 
@@ -136,10 +209,17 @@ export class AnalyticsService {
     }));
   }
 
-  async getProfitMargins(restaurantId: string) {
+  async getProfitMargins(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const items = await this.prisma.menuItem.findMany({
       where: { restaurantId, isActive: true },
-      include: { orderItems: { select: { quantity: true, totalPrice: true } }, category: { select: { nameAr: true } } },
+      include: {
+        orderItems: {
+          where: { order: { branchId: { in: branchIds } } },
+          select: { quantity: true, totalPrice: true },
+        },
+        category: { select: { nameAr: true } },
+      },
     });
 
     return items.map((item) => {
@@ -157,8 +237,49 @@ export class AnalyticsService {
     }).sort((a, b) => b.margin - a.margin);
   }
 
-  async getPeakHours(restaurantId: string) {
-    const branchIds = await this.getBranchIds(restaurantId);
+  // Side-by-side performance of every branch over the last 30 days.
+  async getBranchComparison(restaurantId: string) {
+    const branches = await this.prisma.branch.findMany({
+      where: { restaurantId },
+      select: { id: true, name: true, nameAr: true, isMain: true },
+      orderBy: { isMain: 'desc' },
+    });
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const results = await Promise.all(
+      branches.map(async (b) => {
+        const orders = await this.prisma.order.findMany({
+          where: { branchId: b.id, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
+          include: { items: { include: { menuItem: { select: { cost: true } } } } },
+        });
+
+        const revenue = orders.reduce((s, o) => s + Number(o.total), 0);
+        let cost = 0;
+        for (const o of orders) {
+          for (const item of o.items) {
+            cost += Number(item.menuItem.cost || 0) * item.quantity;
+          }
+        }
+        const profit = revenue - cost;
+
+        return {
+          id: b.id,
+          name: b.name,
+          nameAr: b.nameAr,
+          isMain: b.isMain,
+          revenue: Math.round(revenue * 100) / 100,
+          orders: orders.length,
+          profit: Math.round(profit * 100) / 100,
+          avgOrder: orders.length > 0 ? Math.round((revenue / orders.length) * 100) / 100 : 0,
+        };
+      }),
+    );
+
+    return results.sort((a, b) => b.revenue - a.revenue);
+  }
+
+  async getPeakHours(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const orders = await this.prisma.order.findMany({

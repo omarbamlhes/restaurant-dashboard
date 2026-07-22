@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle } from 'lucide-react';
+import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle, Printer } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
+import Receipt from '@/components/shared/Receipt';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
@@ -67,6 +68,18 @@ export default function OrdersPage() {
 
   // Detail modal
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  // Receipt
+  const [receiptOrder, setReceiptOrder] = useState<any>(null);
+
+  async function openReceipt(orderId: string) {
+    try {
+      const { data } = await api.get(`/orders/${orderId}/receipt`);
+      setReceiptOrder(data);
+    } catch {
+      toast.error('فشل تحميل الفاتورة');
+    }
+  }
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -222,6 +235,13 @@ export default function OrdersPage() {
                           >
                             <Eye className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                           </button>
+                          <button
+                            onClick={() => openReceipt(order.id)}
+                            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-card transition-colors"
+                            title="طباعة الفاتورة"
+                          >
+                            <Printer className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                          </button>
                           {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
                             <button
                               onClick={() => {
@@ -268,6 +288,11 @@ export default function OrdersPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Receipt Modal */}
+      {receiptOrder && (
+        <Receipt order={receiptOrder} onClose={() => setReceiptOrder(null)} />
       )}
 
       {/* Order Detail Modal */}
@@ -345,6 +370,17 @@ export default function OrdersPage() {
                 <span className="text-gray-900 dark:text-white">الإجمالي</span>
                 <span className="text-primary-600 dark:text-primary-400">{formatSAR(selectedOrder.total)} <SARSymbol /></span>
               </div>
+            </div>
+
+            {/* Print Receipt */}
+            <div className="mt-4">
+              <button
+                onClick={() => openReceipt(selectedOrder.id)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 dark:border-dark-border text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors text-sm font-medium"
+              >
+                <Printer className="w-4 h-4" />
+                طباعة الفاتورة
+              </button>
             </div>
 
             {/* Status Actions */}

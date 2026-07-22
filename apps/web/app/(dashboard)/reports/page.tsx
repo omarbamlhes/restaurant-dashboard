@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { FileText, Printer, TrendingUp, DollarSign, Clock, BarChart3 } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Printer, TrendingUp, DollarSign, Clock, BarChart3, Download, FileSpreadsheet, Building2 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from 'recharts';
 import toast from 'react-hot-toast';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
+import BranchFilter, { type Branch } from '@/components/dashboard/BranchFilter';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
@@ -38,6 +39,17 @@ interface PeakHour {
   revenue: number;
 }
 
+interface BranchCompare {
+  id: string;
+  name: string;
+  nameAr: string;
+  isMain: boolean;
+  revenue: number;
+  orders: number;
+  profit: number;
+  avgOrder: number;
+}
+
 const tooltipStyle = {
   backgroundColor: '#1e293b',
   border: '1px solid #334155',
@@ -46,22 +58,29 @@ const tooltipStyle = {
   fontFamily: 'IBM Plex Sans Arabic',
 };
 
-type Tab = 'sales' | 'profit' | 'peak';
+type Tab = 'sales' | 'profit' | 'peak' | 'compare';
 
 export default function ReportsPage() {
   const [sales, setSales] = useState<SalesData[]>([]);
   const [profits, setProfits] = useState<ProfitItem[]>([]);
   const [peakHours, setPeakHours] = useState<PeakHour[]>([]);
+  const [comparison, setComparison] = useState<BranchCompare[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('daily');
   const [tab, setTab] = useState<Tab>('sales');
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchId, setBranchId] = useState('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   useEffect(() => {
     setLoading(true);
+    const branchParams = branchId !== 'all' ? { branchId } : {};
+    const rangeParams = { ...(from ? { from } : {}), ...(to ? { to } : {}) };
     Promise.all([
-      api.get('/analytics/sales', { params: { period } }),
-      api.get('/analytics/profit'),
-      api.get('/analytics/peak-hours'),
+      api.get('/analytics/sales', { params: { period, ...branchParams, ...rangeParams } }),
+      api.get('/analytics/profit', { params: branchParams }),
+      api.get('/analytics/peak-hours', { params: branchParams }),
     ])
       .then(([salesRes, profitRes, peakRes]) => {
         setSales(salesRes.data);
@@ -70,12 +89,118 @@ export default function ReportsPage() {
       })
       .catch(() => toast.error('فشل تحميل بيانات التقارير'))
       .finally(() => setLoading(false));
-  }, [period]);
+  }, [period, branchId, from, to]);
+
+  // Branch comparison is independent of the branch/period filters — load once.
+  useEffect(() => {
+    api.get('/analytics/branches-comparison')
+      .then((res) => setComparison(res.data))
+      .catch(() => {/* comparison tab will show empty state */});
+  }, []);
+
+  const selectedBranchName =
+    branchId === 'all' ? 'كل الفروع' : branches.find((b) => b.id === branchId)?.nameAr ?? '';
 
   const totalRevenue = sales.reduce((s, d) => s + d.revenue, 0);
   const totalOrders = sales.reduce((s, d) => s + d.orders, 0);
   const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
   const totalProfit = profits.reduce((s, p) => s + (p.profitPerItem * p.totalSold), 0);
+
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
+  async function exportPDF() {
+    if (!reportRef.current) return;
+    setExporting(true);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const pdf = new jsPDF('p', 'mm', 'a4');
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const tabName = tab === 'sales' ? 'المبيعات' : tab === 'profit' ? 'الأرباح' : tab === 'peak' ? 'ساعات-الذروة' : 'مقارنة-الفروع';
+      const date = new Date().toISOString().split('T')[0];
+      const branchPart = branchId === 'all' ? '' : `-${selectedBranchName}`;
+      pdf.save(`تقرير-${tabName}${branchPart}-${date}.pdf`);
+      toast.success('تم تصدير التقرير بنجاح');
+    } catch {
+      toast.error('فشل تصدير التقرير');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // Export the active tab's table as a CSV that Excel opens with correct Arabic
+  // (UTF-8 BOM + quoted cells). One file per report type.
+  function exportCSV() {
+    let headers: string[] = [];
+    let rows: (string | number)[][] = [];
+    let tabName = '';
+
+    if (tab === 'sales') {
+      tabName = 'المبيعات';
+      headers = ['التاريخ', 'الإيرادات', 'الطلبات', 'متوسط الطلب'];
+      rows = sales.map((r) => [r.date, r.revenue, r.orders, r.avgOrder]);
+    } else if (tab === 'profit') {
+      tabName = 'الأرباح';
+      headers = ['الصنف', 'الفئة', 'السعر', 'التكلفة', 'الربح/وحدة', 'الهامش %', 'مبيعات', 'إجمالي الإيرادات', 'إجمالي الربح'];
+      rows = profits.map((p) => [
+        p.nameAr, p.category, p.unitPrice, p.unitCost, p.profitPerItem, p.margin, p.totalSold, p.totalRevenue,
+        Math.round(p.profitPerItem * p.totalSold * 100) / 100,
+      ]);
+    } else if (tab === 'peak') {
+      tabName = 'ساعات-الذروة';
+      headers = ['الساعة', 'عدد الطلبات', 'الإيرادات', 'متوسط الطلب'];
+      rows = peakHours.filter((h) => h.orders > 0).map((h) => [
+        h.label, h.orders, h.revenue, h.orders > 0 ? Math.round((h.revenue / h.orders) * 100) / 100 : 0,
+      ]);
+    } else {
+      tabName = 'مقارنة-الفروع';
+      headers = ['الفرع', 'الإيرادات', 'الطلبات', 'الأرباح', 'متوسط الطلب'];
+      rows = comparison.map((b) => [b.nameAr, b.revenue, b.orders, b.profit, b.avgOrder]);
+    }
+
+    if (rows.length === 0) {
+      toast.error('لا توجد بيانات للتصدير');
+      return;
+    }
+
+    const escape = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = new Date().toISOString().split('T')[0];
+    const branchPart = branchId === 'all' ? '' : `-${selectedBranchName}`;
+    link.href = url;
+    link.download = `تقرير-${tabName}${branchPart}-${date}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success('تم تصدير ملف Excel');
+  }
 
   if (loading) return <DashboardSkeleton />;
 
@@ -87,17 +212,46 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">التقارير</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">تقارير المبيعات والأرباح وساعات الذروة</p>
         </div>
-        <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-sm">
-          <Printer className="w-4 h-4" />
-          طباعة
-        </button>
+        <div className="flex gap-2 items-center flex-wrap">
+          <BranchFilter value={branchId} onChange={setBranchId} onBranchesChange={setBranches} />
+          <button
+            onClick={exportPDF}
+            disabled={exporting}
+            className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" />
+            {exporting ? 'جاري التصدير...' : 'تصدير PDF'}
+          </button>
+          <button onClick={exportCSV} className="btn-secondary flex items-center gap-2 text-sm">
+            <FileSpreadsheet className="w-4 h-4" />
+            تصدير Excel
+          </button>
+          <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-sm">
+            <Printer className="w-4 h-4" />
+            طباعة
+          </button>
+        </div>
       </div>
 
       {/* Print Header */}
       <div className="hidden print:block text-center mb-4">
         <h1 className="text-xl font-bold">تقرير المبيعات</h1>
+        <p className="text-sm font-medium">{selectedBranchName}</p>
         <p className="text-sm text-gray-500">{new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
       </div>
+
+      <div ref={reportRef}>
+
+      {/* PDF Header (hidden on screen, shown in PDF) */}
+      {exporting && (
+        <div className="text-center mb-6 pb-4 border-b-2 border-gray-200">
+          <h1 className="text-2xl font-bold text-gray-900">
+            {tab === 'sales' ? 'تقرير المبيعات' : tab === 'profit' ? 'تقرير الأرباح' : tab === 'peak' ? 'تقرير ساعات الذروة' : 'تقرير مقارنة الفروع'}
+          </h1>
+          <p className="text-base font-semibold text-gray-700 mt-1">{selectedBranchName}</p>
+          <p className="text-sm text-gray-500 mt-1">{new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</p>
+        </div>
+      )}
 
       {/* Summary Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 stagger-children">
@@ -140,21 +294,22 @@ export default function ReportsPage() {
       </div>
 
       {/* Tabs & Period Selector */}
-      <div className="flex items-center justify-between flex-wrap gap-3 print:hidden">
-        <div className="flex gap-2">
+      <div className="glass-card p-2 flex items-center justify-between flex-wrap gap-3 print:hidden">
+        <div className="flex gap-1">
           {([
             { key: 'sales' as Tab, label: 'المبيعات', icon: TrendingUp },
             { key: 'profit' as Tab, label: 'الأرباح', icon: DollarSign },
             { key: 'peak' as Tab, label: 'ساعات الذروة', icon: Clock },
+            { key: 'compare' as Tab, label: 'مقارنة الفروع', icon: Building2 },
           ]).map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors',
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all',
                 tab === t.key
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-white dark:bg-dark-card text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-hover border border-gray-200 dark:border-dark-border',
+                  ? 'bg-primary-600 text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-dark-hover',
               )}
             >
               <t.icon className="w-4 h-4" />
@@ -164,25 +319,56 @@ export default function ReportsPage() {
         </div>
 
         {tab === 'sales' && (
-          <div className="flex gap-2">
-            {[
-              { key: 'daily', label: 'يومي' },
-              { key: 'weekly', label: 'أسبوعي' },
-              { key: 'monthly', label: 'شهري' },
-            ].map((p) => (
-              <button
-                key={p.key}
-                onClick={() => setPeriod(p.key)}
-                className={cn(
-                  'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                  period === p.key
-                    ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
-                    : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-400',
-                )}
-              >
-                {p.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Date range */}
+            <div className="flex items-center gap-1.5 text-sm">
+              <input
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => setFrom(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-dark-hover text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="من تاريخ"
+              />
+              <span className="text-gray-400">—</span>
+              <input
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-dark-hover text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="إلى تاريخ"
+              />
+              {(from || to) && (
+                <button
+                  onClick={() => { setFrom(''); setTo(''); }}
+                  className="text-xs text-gray-500 hover:text-rose-500 px-2 py-1"
+                >
+                  مسح
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-1 bg-gray-100 dark:bg-dark-hover rounded-lg p-1">
+              {[
+                { key: 'daily', label: 'يومي' },
+                { key: 'weekly', label: 'أسبوعي' },
+                { key: 'monthly', label: 'شهري' },
+              ].map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setPeriod(p.key)}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                    period === p.key
+                      ? 'bg-white dark:bg-dark-card text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300',
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -369,6 +555,76 @@ export default function ReportsPage() {
           </div>
         </>
       )}
+
+      {/* Branch Comparison Report */}
+      {tab === 'compare' && (
+        <>
+          {/* Chart */}
+          <div className="glass-card p-6 animate-fade-in-up print:shadow-none print:border">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">مقارنة الفروع</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">أداء كل فرع خلال آخر 30 يوماً</p>
+            {comparison.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 py-12">لا توجد بيانات للفروع</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={comparison} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                  <XAxis dataKey="nameAr" reversed tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#334155' }} />
+                  <YAxis orientation="right" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#334155' }} />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(value: number, name: string) => [
+                      `${value.toLocaleString('ar-SA')} ${name === 'orders' ? 'طلب' : 'ريال'}`,
+                      name === 'revenue' ? 'الإيرادات' : name === 'profit' ? 'الأرباح' : 'الطلبات',
+                    ]}
+                  />
+                  <Legend formatter={(value) => <span className="text-sm text-gray-400">{value === 'revenue' ? 'الإيرادات' : value === 'profit' ? 'الأرباح' : 'الطلبات'}</span>} />
+                  <Bar dataKey="revenue" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="profit" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Comparison Table */}
+          <div className="glass-card overflow-hidden animate-fade-in-up print:shadow-none print:border">
+            <div className="p-6 pb-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">تفاصيل الفروع</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-dark-border">
+                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">#</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الفرع</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الإيرادات</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الطلبات</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الأرباح</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">متوسط الطلب</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparison.map((b, i) => (
+                    <tr key={b.id} className="border-b border-gray-100 dark:border-dark-border/50 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors">
+                      <td className="p-4 text-sm text-gray-400">{i === 0 ? '🏆' : i + 1}</td>
+                      <td className="p-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {b.nameAr}
+                        {b.isMain && <span className="text-xs px-2 py-0.5 rounded-lg bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 mr-2">رئيسي</span>}
+                      </td>
+                      <td className="p-4 text-sm text-emerald-600 dark:text-emerald-400 font-semibold">{formatSAR(b.revenue)} <SARSymbol /></td>
+                      <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatNumber(b.orders)}</td>
+                      <td className="p-4 text-sm text-purple-600 dark:text-purple-400 font-medium">{formatSAR(b.profit)} <SARSymbol /></td>
+                      <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(b.avgOrder)} <SARSymbol /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      </div>{/* end reportRef */}
     </div>
   );
 }

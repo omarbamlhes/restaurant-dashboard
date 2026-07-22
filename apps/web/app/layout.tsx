@@ -1,10 +1,28 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'react-hot-toast';
 import './globals.css';
+import PWAManager from '@/components/shared/PWAManager';
 
 export const metadata: Metadata = {
-  title: 'لوحة المطاعم الذكية | Smart Restaurant Dashboard',
-  description: 'منصة تحليلات ذكية لأصحاب المطاعم والمقاهي في السعودية',
+  title: 'رستق | منصة إدارة المطاعم الذكية',
+  description: 'من أرض الخير... لإدارة أذكى. منصة تحليلات ذكية لأصحاب المطاعم والمقاهي في السعودية',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'رستق',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#1e5740',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -19,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="font-sans antialiased">
         {children}
+        <PWAManager />
         <Toaster
           position="top-left"
           toastOptions={{

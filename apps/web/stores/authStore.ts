@@ -8,6 +8,7 @@ interface User {
   email: string;
   name: string;
   role: string;
+  permissions: string[];
   language: string;
 }
 

@@ -9,7 +9,7 @@ export class MenuService {
   async findAll(restaurantId: string, categoryId?: string) {
     return this.prisma.menuItem.findMany({
       where: { restaurantId, isActive: true, ...(categoryId ? { categoryId } : {}) },
-      include: { category: true },
+      include: { category: true, station: { select: { id: true, nameAr: true, color: true } } },
       orderBy: [{ category: { sortOrder: 'asc' } }, { nameAr: 'asc' }],
     });
   }

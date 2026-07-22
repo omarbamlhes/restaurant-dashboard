@@ -14,6 +14,13 @@
   }
 }
 
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+}
+
 @layer components {
   .glass-card {
     @apply bg-white/80 dark:bg-dark-card/80 backdrop-blur-xl border border-gray-200/50 dark:border-dark-border/50 rounded-2xl shadow-sm;
@@ -22,16 +29,16 @@
     @apply glass-card p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
   }
   .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-primary-50 dark:hover:bg-primary-950/50 hover:text-primary-700 dark:hover:text-primary-400 transition-all duration-200;
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-primary-50 dark:hover:bg-primary-950/50 hover:text-primary-700 dark:hover:text-primary-400 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-card;
   }
   .sidebar-link.active {
     @apply bg-primary-50 dark:bg-primary-950/50 text-primary-700 dark:text-primary-400 font-semibold;
   }
   .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:shadow-primary-500/25;
+    @apply bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all duration-200 hover:shadow-lg hover:shadow-primary-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2;
   }
   .btn-secondary {
-    @apply bg-gray-100 dark:bg-dark-card hover:bg-gray-200 dark:hover:bg-dark-hover text-gray-700 dark:text-gray-300 px-5 py-2.5 rounded-xl font-medium transition-all duration-200;
+    @apply bg-gray-100 dark:bg-dark-card hover:bg-gray-200 dark:hover:bg-dark-hover text-gray-700 dark:text-gray-300 px-5 py-2.5 rounded-xl font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2;
   }
   .input-field {
     @apply w-full px-4 py-3 bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border rounded-xl text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all duration-200;
@@ -78,6 +85,10 @@
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes slideUp {
+  from { opacity: 0; transform: translate(-50%, 16px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
 @keyframes kitchenCardEnter {
   from { opacity: 0; transform: translateY(15px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -111,6 +122,9 @@
 .animate-slide-down {
   animation: slideDown 0.3s ease-out;
 }
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
 
 /* Staggered children animation */
 .stagger-children > * {
@@ -137,4 +151,241 @@
 }
 .dark .stat-card:hover {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 0 15px -3px rgba(16, 185, 129, 0.12);
+}
+
+/* Leaflet map overrides */
+.branch-marker {
+  background: none !important;
+  border: none !important;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 16px !important;
+  box-shadow: 0 10px 40px -5px rgba(0,0,0,0.15) !important;
+}
+.leaflet-popup-content {
+  margin: 8px 12px !important;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-shimmer {
+    animation: none !important;
+    background: rgba(148, 163, 184, 0.12) !important;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────
+   Print styles for Receipt (80mm thermal) & Shift Report (A4)
+   ─────────────────────────────────────────────────────────── */
+@media print {
+  /* Default page setup — overridden by :has() below for receipt */
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  /* Force light theme for print so text is readable on paper */
+  html,
+  html.dark {
+    color-scheme: light !important;
+    background: #fff !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Browsers don't run CSS animations while printing, so any element that
+     starts hidden (opacity:0) and animates in — e.g. .stagger-children and
+     .animate-* cards — would print blank. Force everything visible and static. */
+  *,
+  *::before,
+  *::after {
+    opacity: 1 !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  /* Reset CSS transforms too, but NOT on SVG nodes — recharts positions its
+     axes/bars via transforms and zeroing them would collapse the charts. */
+  *:not(svg):not(svg *) {
+    transform: none !important;
+  }
+  .stagger-children > * {
+    opacity: 1 !important;
+  }
+
+  /* Hide chrome that doesn't belong on paper */
+  aside,
+  header,
+  nav {
+    display: none !important;
+  }
+
+  /* Strip decoration that prints badly */
+  *,
+  *::before,
+  *::after {
+    background-image: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Force all backgrounds white — paper printing */
+  html,
+  body,
+  body * {
+    background-color: #ffffff !important;
+  }
+
+  /* Force all text to readable dark — overrides dark-mode whites */
+  body,
+  body * {
+    color: #111111 !important;
+  }
+
+  /* Preserve semantic status colors (positive/negative/info) */
+  .text-emerald-400,
+  .text-emerald-500,
+  .text-emerald-600,
+  .text-emerald-700 { color: #047857 !important; }
+  .text-rose-400,
+  .text-rose-500,
+  .text-rose-600,
+  .text-rose-700 { color: #be123c !important; }
+  .text-amber-400,
+  .text-amber-500,
+  .text-amber-600,
+  .text-amber-700 { color: #b45309 !important; }
+  .text-blue-400,
+  .text-blue-500,
+  .text-blue-600,
+  .text-blue-700 { color: #1d4ed8 !important; }
+  .text-primary-400,
+  .text-primary-500,
+  .text-primary-600,
+  .text-primary-700 { color: #047857 !important; }
+
+  /* Normalize borders to light gray */
+  *,
+  *::before,
+  *::after {
+    border-color: #d1d5db !important;
+  }
+
+  /* Reset fixed/sticky elements so they don't overlay content */
+  .fixed,
+  .sticky,
+  .absolute {
+    position: static !important;
+  }
+
+  /* Remove sidebar offsets — content should fill the page */
+  main,
+  [class*="mr-64"],
+  [class*="mr-20"],
+  [class*="pt-16"],
+  [class*="p-6"],
+  [class*="p-4"] {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    padding-top: 8mm !important;
+  }
+
+  /* Make sure nothing clips the report content */
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Only isolate when a print-target wrapper is present on the page.
+     Pages that call window.print() without these IDs print normally. */
+  body:has(#receipt-content) *,
+  body:has(#shift-report-content) * {
+    visibility: hidden;
+  }
+  #receipt-content,
+  #receipt-content *,
+  #shift-report-content,
+  #shift-report-content * {
+    visibility: visible;
+  }
+
+  /* Thermal receipt — 80mm roll printer */
+  #receipt-content {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 80mm;
+    margin: 0 auto;
+    padding: 4mm 3mm;
+    font-family: 'Courier New', 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  /* When the receipt is visible, shrink the page to 80mm */
+  body:has(#receipt-content) {
+    margin: 0;
+  }
+  @page :first {
+    margin: 0;
+  }
+
+  /* Receipt: keep totals together on one page */
+  #receipt-content .receipt-totals {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Shift report — standard A4 */
+  #shift-report-content {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 10mm;
+    font-size: 12px;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+}
+
+/* Page size hint for thermal printers (works in Chromium/WebKit) */
+@media print {
+  @page receipt {
+    size: 80mm auto;
+    margin: 0;
+  }
 }

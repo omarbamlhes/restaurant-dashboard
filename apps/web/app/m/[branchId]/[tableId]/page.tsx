@@ -7,6 +7,7 @@ import {
   Plus, Minus, ShoppingCart, Utensils, CheckCircle2, X, Clock, User, Phone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import SARSymbol from '@/components/shared/SARSymbol';
 
 interface MenuItem {
   id: string;
@@ -48,9 +49,15 @@ interface OrderResult {
 
 const API_BASE = '/api';
 
-function formatPrice(v: string | number, currency = 'SAR') {
-  const n = typeof v === 'string' ? Number(v) : v;
-  return `${n.toFixed(2)} ${currency === 'SAR' ? 'ر.س' : currency}`;
+// Render a price with the official Saudi Riyal glyph (matches the rest of the
+// app), falling back to the currency code for non-SAR restaurants.
+function Price({ value, currency = 'SAR' }: { value: string | number; currency?: string }) {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return (
+    <>
+      {n.toFixed(2)} {currency === 'SAR' ? <SARSymbol /> : currency}
+    </>
+  );
 }
 
 export default function QrMenuPage() {
@@ -189,7 +196,7 @@ export default function QrMenuPage() {
           <h2 className="text-2xl font-bold mb-2">تم إرسال طلبك</h2>
           <p className="text-sm text-gray-500 mb-4">رقم الطلب</p>
           <div className="text-3xl font-mono font-bold text-primary-600 mb-4">{result.orderNumber}</div>
-          <div className="text-xl font-bold mb-6">{formatPrice(result.total, data.restaurant.currency)}</div>
+          <div className="text-xl font-bold mb-6">{<Price value={result.total} currency={data.restaurant.currency} />}</div>
           <p className="text-sm text-gray-500 mb-6">
             يُحضَّر طلبك الآن. ستجده عند طاولتك قريباً.
           </p>
@@ -280,7 +287,7 @@ export default function QrMenuPage() {
                         <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.descriptionAr}</p>
                       )}
                       <div className="flex items-center justify-between mt-2">
-                        <div className="font-bold text-primary-600">{formatPrice(item.price, currency)}</div>
+                        <div className="font-bold text-primary-600">{<Price value={item.price} currency={currency} />}</div>
                         {item.preparationTime && (
                           <div className="flex items-center gap-1 text-xs text-gray-500">
                             <Clock className="w-3 h-3" />
@@ -331,7 +338,7 @@ export default function QrMenuPage() {
         >
           <ShoppingCart className="w-5 h-5" />
           <span>عرض السلة ({totalItems})</span>
-          <span className="text-sm opacity-90">{formatPrice(total, currency)}</span>
+          <span className="text-sm opacity-90">{<Price value={total} currency={currency} />}</span>
         </button>
       )}
 
@@ -351,7 +358,7 @@ export default function QrMenuPage() {
                     <div className="flex-1">
                       <div className="font-semibold">{line.item.nameAr}</div>
                       <div className="text-xs text-gray-500">
-                        {formatPrice(line.item.price, currency)} × {line.quantity}
+                        {<Price value={line.item.price} currency={currency} />} × {line.quantity}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 bg-primary-50 dark:bg-primary-950/50 rounded-xl p-1">
@@ -405,15 +412,15 @@ export default function QrMenuPage() {
             <div className="border-t border-gray-200 dark:border-dark-border p-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">المجموع الفرعي</span>
-                <span>{formatPrice(subtotal, currency)}</span>
+                <span>{<Price value={subtotal} currency={currency} />}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">ضريبة ١٥٪</span>
-                <span>{formatPrice(tax, currency)}</span>
+                <span>{<Price value={tax} currency={currency} />}</span>
               </div>
               <div className="flex justify-between text-lg font-bold">
                 <span>الإجمالي</span>
-                <span className="text-primary-600">{formatPrice(total, currency)}</span>
+                <span className="text-primary-600">{<Price value={total} currency={currency} />}</span>
               </div>
               <button
                 disabled={submitting || totalItems === 0}

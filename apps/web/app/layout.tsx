@@ -3,9 +3,14 @@ import { Toaster } from 'react-hot-toast';
 import './globals.css';
 import PWAManager from '@/components/shared/PWAManager';
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const SITE_DESC =
+  'من أرض الخير... لإدارة أذكى. منصة تحليلات ذكية لأصحاب المطاعم والمقاهي في السعودية';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: 'رستق | منصة إدارة المطاعم الذكية',
-  description: 'من أرض الخير... لإدارة أذكى. منصة تحليلات ذكية لأصحاب المطاعم والمقاهي في السعودية',
+  description: SITE_DESC,
   manifest: '/manifest.json',
   icons: {
     icon: '/icon.svg',
@@ -15,6 +20,19 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'رستق',
+  },
+  openGraph: {
+    title: 'رستق | منصة إدارة المطاعم الذكية',
+    description: SITE_DESC,
+    url: SITE_URL,
+    siteName: 'رستق',
+    locale: 'ar_SA',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'رستق | منصة إدارة المطاعم الذكية',
+    description: SITE_DESC,
   },
 };
 

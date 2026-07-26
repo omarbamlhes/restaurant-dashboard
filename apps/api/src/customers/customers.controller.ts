@@ -5,7 +5,9 @@ import { CreateCustomerDto, UpdateCustomerDto } from './dto/create-customer.dto'
 import { Roles } from '../common/roles.decorator';
 import { Permission } from '../common/permission.decorator';
 import { RestaurantHelper } from '../common/restaurant.helper';
+import { RequiresFeature } from '../common/subscription.decorator';
 
+@RequiresFeature('customers')
 @Controller('customers')
 @Roles(UserRole.OWNER, UserRole.MANAGER)
 @Permission('customers')
@@ -16,9 +18,14 @@ export class CustomersController {
   ) {}
 
   @Get()
-  async findAll(@Request() req, @Query('search') search?: string) {
+  async findAll(
+    @Request() req,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
-    return this.customersService.findAll(rid, search);
+    return this.customersService.findAll(rid, search, Number(page), Number(limit));
   }
 
   @Get('stats')

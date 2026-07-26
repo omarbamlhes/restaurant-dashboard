@@ -5,6 +5,7 @@ import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
 import { Roles } from '../common/roles.decorator';
 import { Permission } from '../common/permission.decorator';
 import { RestaurantHelper } from '../common/restaurant.helper';
+import { CheckOrderLimit } from '../common/subscription.decorator';
 
 @Controller('orders')
 @Permission('orders')
@@ -34,6 +35,7 @@ export class OrdersController {
   @Post()
   @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.STAFF)
   @Permission('orders', 'pos')
+  @CheckOrderLimit()
   async create(@Request() req, @Body() dto: CreateOrderDto) {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.ordersService.create(rid, dto);

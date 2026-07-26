@@ -140,6 +140,44 @@ export class ReservationsService {
     return reservation;
   }
 
+  async lookup(restaurantId: string, code: string) {
+    const raw = (code || '').trim();
+    if (!raw) throw new NotFoundException('لم يتم العثور على حجز بهذا الرمز');
+
+    // Accept either the scanned QR payload (JSON with the full id), the full id,
+    // or the short 6-char code shown to the customer (last chars of the cuid).
+    let value = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.id === 'string') value = parsed.id;
+    } catch {
+      // not JSON — use as-is
+    }
+
+    const branchIds = (
+      await this.prisma.branch.findMany({ where: { restaurantId }, select: { id: true } })
+    ).map(b => b.id);
+
+    const where: any = { branchId: { in: branchIds } };
+    if (value.length >= 20) {
+      where.id = value;
+    } else {
+      where.id = { endsWith: value.toLowerCase() };
+    }
+
+    const reservation = await this.prisma.reservation.findFirst({
+      where,
+      include: {
+        table: { select: { number: true, nameAr: true, capacity: true } },
+        branch: { select: { nameAr: true } },
+        customer: { select: { id: true, name: true, phone: true, totalOrders: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!reservation) throw new NotFoundException('لم يتم العثور على حجز بهذا الرمز');
+    return reservation;
+  }
+
   async updateStatus(id: string, restaurantId: string, dto: UpdateReservationStatusDto) {
     const reservation = await this.prisma.reservation.findFirst({
       where: { id },

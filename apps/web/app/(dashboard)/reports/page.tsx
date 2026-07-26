@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Printer, TrendingUp, DollarSign, Clock, BarChart3, Download, FileSpreadsheet, Building2 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -9,7 +9,7 @@ import {
 import toast from 'react-hot-toast';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import BranchFilter, { type Branch } from '@/components/dashboard/BranchFilter';
-import api from '@/lib/api';
+import { useApi } from '@/hooks/useApi';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -61,11 +61,6 @@ const tooltipStyle = {
 type Tab = 'sales' | 'profit' | 'peak' | 'compare';
 
 export default function ReportsPage() {
-  const [sales, setSales] = useState<SalesData[]>([]);
-  const [profits, setProfits] = useState<ProfitItem[]>([]);
-  const [peakHours, setPeakHours] = useState<PeakHour[]>([]);
-  const [comparison, setComparison] = useState<BranchCompare[]>([]);
-  const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('daily');
   const [tab, setTab] = useState<Tab>('sales');
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -73,30 +68,21 @@ export default function ReportsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
-  useEffect(() => {
-    setLoading(true);
-    const branchParams = branchId !== 'all' ? { branchId } : {};
-    const rangeParams = { ...(from ? { from } : {}), ...(to ? { to } : {}) };
-    Promise.all([
-      api.get('/analytics/sales', { params: { period, ...branchParams, ...rangeParams } }),
-      api.get('/analytics/profit', { params: branchParams }),
-      api.get('/analytics/peak-hours', { params: branchParams }),
-    ])
-      .then(([salesRes, profitRes, peakRes]) => {
-        setSales(salesRes.data);
-        setProfits(profitRes.data);
-        setPeakHours(peakRes.data);
-      })
-      .catch(() => toast.error('فشل تحميل بيانات التقارير'))
-      .finally(() => setLoading(false));
-  }, [period, branchId, from, to]);
-
-  // Branch comparison is independent of the branch/period filters — load once.
-  useEffect(() => {
-    api.get('/analytics/branches-comparison')
-      .then((res) => setComparison(res.data))
-      .catch(() => {/* comparison tab will show empty state */});
-  }, []);
+  // SWR-cached reports (client) layered on the Redis cache (server). Keys encode
+  // the active filters, so each filter combination is cached independently.
+  const branchQ = branchId !== 'all' ? `&branchId=${branchId}` : '';
+  const rangeQ = `${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`;
+  const { data: sales = [], loading: loadingSales } = useApi<SalesData[]>(
+    `/analytics/sales?period=${period}${branchQ}${rangeQ}`,
+  );
+  const { data: profits = [] } = useApi<ProfitItem[]>(
+    `/analytics/profit${branchId !== 'all' ? `?branchId=${branchId}` : ''}`,
+  );
+  const { data: peakHours = [] } = useApi<PeakHour[]>(
+    `/analytics/peak-hours${branchId !== 'all' ? `?branchId=${branchId}` : ''}`,
+  );
+  const { data: comparison = [] } = useApi<BranchCompare[]>('/analytics/branches-comparison');
+  const loading = loadingSales && sales.length === 0;
 
   const selectedBranchName =
     branchId === 'all' ? 'كل الفروع' : branches.find((b) => b.id === branchId)?.nameAr ?? '';

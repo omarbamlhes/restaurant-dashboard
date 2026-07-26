@@ -1,9 +1,58 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
+
+const ANALYTICS_TTL = 60; // seconds — dashboards poll frequently; 60s is fresh enough
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheService,
+  ) {}
+
+  // ── Cached public API ──────────────────────────────────────────────
+  // Each report is cached per restaurant + branch (+ params) for a short TTL.
+
+  getOverview(restaurantId: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:overview:${branchId || 'all'}`,
+      ANALYTICS_TTL,
+      () => this._getOverview(restaurantId, branchId),
+    );
+  }
+
+  getSales(restaurantId: string, period = 'daily', from?: string, to?: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:sales:${branchId || 'all'}:${period}:${from || ''}:${to || ''}`,
+      ANALYTICS_TTL,
+      () => this._getSales(restaurantId, period, from, to, branchId),
+    );
+  }
+
+  getProfitMargins(restaurantId: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:profit:${branchId || 'all'}`,
+      ANALYTICS_TTL,
+      () => this._getProfitMargins(restaurantId, branchId),
+    );
+  }
+
+  getBranchComparison(restaurantId: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:branch-comparison`,
+      ANALYTICS_TTL,
+      () => this._getBranchComparison(restaurantId),
+    );
+  }
+
+  getPeakHours(restaurantId: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:peak-hours:${branchId || 'all'}`,
+      ANALYTICS_TTL,
+      () => this._getPeakHours(restaurantId, branchId),
+    );
+  }
 
   private async getBranchIds(restaurantId: string) {
     const branches = await this.prisma.branch.findMany({ where: { restaurantId }, select: { id: true } });
@@ -24,7 +73,7 @@ export class AnalyticsService {
     return this.getBranchIds(restaurantId);
   }
 
-  async getOverview(restaurantId: string, branchId?: string) {
+  private async _getOverview(restaurantId: string, branchId?: string) {
     const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const now = new Date();
     const today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -39,7 +88,24 @@ export class AnalyticsService {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-    const [todayOrders, yesterdayOrders, thisWeekOrders, prevWeekOrders, thisMonthOrders, prevMonthOrders] = await Promise.all([
+    // Sales chart window (last 30 days)
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Week/month totals are pure sums, so let the DB aggregate them instead of
+    // pulling every row into memory. Today/yesterday still need item rows (for
+    // cost, top items, order-type split). All queries run in a single round of
+    // parallel requests, including recent orders and the 30-day chart.
+    const sumWhere = (gte: Date, lt?: Date) => ({
+      branchId: { in: branchIds },
+      createdAt: lt ? { gte, lt } : { gte },
+      status: { not: 'CANCELLED' as const },
+    });
+
+    const [
+      todayOrders, yesterdayOrders,
+      thisWeekAgg, prevWeekAgg, thisMonthAgg, prevMonthAgg,
+      recentOrders, allOrders,
+    ] = await Promise.all([
       this.prisma.order.findMany({
         where: { branchId: { in: branchIds }, createdAt: { gte: today }, status: { not: 'CANCELLED' } },
         include: { items: { include: { menuItem: { select: { name: true, nameAr: true, cost: true } } } } },
@@ -48,21 +114,19 @@ export class AnalyticsService {
         where: { branchId: { in: branchIds }, createdAt: { gte: yesterday, lt: today }, status: { not: 'CANCELLED' } },
         include: { items: { include: { menuItem: { select: { cost: true } } } } },
       }),
+      this.prisma.order.aggregate({ where: sumWhere(weekStart), _sum: { total: true }, _count: true }),
+      this.prisma.order.aggregate({ where: sumWhere(prevWeekStart, weekStart), _sum: { total: true }, _count: true }),
+      this.prisma.order.aggregate({ where: sumWhere(monthStart), _sum: { total: true }, _count: true }),
+      this.prisma.order.aggregate({ where: sumWhere(prevMonthStart, monthStart), _sum: { total: true }, _count: true }),
       this.prisma.order.findMany({
-        where: { branchId: { in: branchIds }, createdAt: { gte: weekStart }, status: { not: 'CANCELLED' } },
-        select: { total: true },
+        where: { branchId: { in: branchIds } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, orderNumber: true, total: true, status: true, type: true, createdAt: true },
       }),
       this.prisma.order.findMany({
-        where: { branchId: { in: branchIds }, createdAt: { gte: prevWeekStart, lt: weekStart }, status: { not: 'CANCELLED' } },
-        select: { total: true },
-      }),
-      this.prisma.order.findMany({
-        where: { branchId: { in: branchIds }, createdAt: { gte: monthStart }, status: { not: 'CANCELLED' } },
-        select: { total: true },
-      }),
-      this.prisma.order.findMany({
-        where: { branchId: { in: branchIds }, createdAt: { gte: prevMonthStart, lt: monthStart }, status: { not: 'CANCELLED' } },
-        select: { total: true },
+        where: { branchId: { in: branchIds }, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
+        select: { total: true, createdAt: true },
       }),
     ]);
 
@@ -98,29 +162,18 @@ export class AnalyticsService {
 
     const calcChange = (curr: number, prev: number) => prev > 0 ? Math.round(((curr - prev) / prev) * 1000) / 10 : 0;
 
-    // Week & month summaries
-    const thisWeekRevenue = thisWeekOrders.reduce((s, o) => s + Number(o.total), 0);
-    const prevWeekRevenue = prevWeekOrders.reduce((s, o) => s + Number(o.total), 0);
-    const thisMonthRevenue = thisMonthOrders.reduce((s, o) => s + Number(o.total), 0);
-    const prevMonthRevenue = prevMonthOrders.reduce((s, o) => s + Number(o.total), 0);
+    // Week & month summaries (DB-aggregated)
+    const thisWeekRevenue = Number(thisWeekAgg._sum.total ?? 0);
+    const prevWeekRevenue = Number(prevWeekAgg._sum.total ?? 0);
+    const thisMonthRevenue = Number(thisMonthAgg._sum.total ?? 0);
+    const prevMonthRevenue = Number(prevMonthAgg._sum.total ?? 0);
+    const thisWeekOrdersCount = thisWeekAgg._count;
+    const prevWeekOrdersCount = prevWeekAgg._count;
+    const thisMonthOrdersCount = thisMonthAgg._count;
+    const prevMonthOrdersCount = prevMonthAgg._count;
 
     // Top 5 items
     const topItems = Object.values(itemCounts).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
-
-    // Recent 10 orders
-    const recentOrders = await this.prisma.order.findMany({
-      where: { branchId: { in: branchIds } },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: { id: true, orderNumber: true, total: true, status: true, type: true, createdAt: true },
-    });
-
-    // Sales chart (last 30 days)
-    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const allOrders = await this.prisma.order.findMany({
-      where: { branchId: { in: branchIds }, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
-      select: { total: true, createdAt: true },
-    });
 
     const salesMap: Record<string, { revenue: number; orders: number }> = {};
     for (let d = new Date(thirtyDaysAgo); d <= new Date(); d.setDate(d.getDate() + 1)) {
@@ -158,13 +211,13 @@ export class AnalyticsService {
       avgChange: calcChange(avgOrderValue, yesterdayAvg),
       // Weekly & monthly
       thisWeekRevenue: Math.round(thisWeekRevenue * 100) / 100,
-      thisWeekOrders: thisWeekOrders.length,
+      thisWeekOrders: thisWeekOrdersCount,
       weekRevenueChange: calcChange(thisWeekRevenue, prevWeekRevenue),
-      weekOrdersChange: calcChange(thisWeekOrders.length, prevWeekOrders.length),
+      weekOrdersChange: calcChange(thisWeekOrdersCount, prevWeekOrdersCount),
       thisMonthRevenue: Math.round(thisMonthRevenue * 100) / 100,
-      thisMonthOrders: thisMonthOrders.length,
+      thisMonthOrders: thisMonthOrdersCount,
       monthRevenueChange: calcChange(thisMonthRevenue, prevMonthRevenue),
-      monthOrdersChange: calcChange(thisMonthOrders.length, prevMonthOrders.length),
+      monthOrdersChange: calcChange(thisMonthOrdersCount, prevMonthOrdersCount),
       // Breakdown
       ordersByType,
       topItems,
@@ -173,7 +226,7 @@ export class AnalyticsService {
     };
   }
 
-  async getSales(restaurantId: string, period: string = 'daily', from?: string, to?: string, branchId?: string) {
+  private async _getSales(restaurantId: string, period: string = 'daily', from?: string, to?: string, branchId?: string) {
     const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const startDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = to ? new Date(to + 'T23:59:59') : new Date();
@@ -209,7 +262,7 @@ export class AnalyticsService {
     }));
   }
 
-  async getProfitMargins(restaurantId: string, branchId?: string) {
+  private async _getProfitMargins(restaurantId: string, branchId?: string) {
     const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const items = await this.prisma.menuItem.findMany({
       where: { restaurantId, isActive: true },
@@ -238,7 +291,7 @@ export class AnalyticsService {
   }
 
   // Side-by-side performance of every branch over the last 30 days.
-  async getBranchComparison(restaurantId: string) {
+  private async _getBranchComparison(restaurantId: string) {
     const branches = await this.prisma.branch.findMany({
       where: { restaurantId },
       select: { id: true, name: true, nameAr: true, isMain: true },
@@ -278,7 +331,7 @@ export class AnalyticsService {
     return results.sort((a, b) => b.revenue - a.revenue);
   }
 
-  async getPeakHours(restaurantId: string, branchId?: string) {
+  private async _getPeakHours(restaurantId: string, branchId?: string) {
     const branchIds = await this.resolveBranchIds(restaurantId, branchId);
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 

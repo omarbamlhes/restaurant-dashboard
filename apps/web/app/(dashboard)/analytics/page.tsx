@@ -1,14 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BarChart3, TrendingUp, Clock, DollarSign } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
-import toast from 'react-hot-toast';
-import api from '@/lib/api';
+import { useApi } from '@/hooks/useApi';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -49,27 +48,13 @@ const tooltipStyle = {
 };
 
 export default function AnalyticsPage() {
-  const [sales, setSales] = useState<SalesData[]>([]);
-  const [profits, setProfits] = useState<ProfitItem[]>([]);
-  const [peakHours, setPeakHours] = useState<PeakHour[]>([]);
-  const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('daily');
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      api.get('/analytics/sales', { params: { period } }),
-      api.get('/analytics/profit'),
-      api.get('/analytics/peak-hours'),
-    ])
-      .then(([salesRes, profitRes, peakRes]) => {
-        setSales(salesRes.data);
-        setProfits(profitRes.data);
-        setPeakHours(peakRes.data);
-      })
-      .catch(() => toast.error('فشل تحميل بيانات التحليلات'))
-      .finally(() => setLoading(false));
-  }, [period]);
+  // Each report is SWR-cached (client) on top of the Redis cache (server).
+  const { data: sales = [], loading: loadingSales } = useApi<SalesData[]>(`/analytics/sales?period=${period}`);
+  const { data: profits = [] } = useApi<ProfitItem[]>('/analytics/profit');
+  const { data: peakHours = [] } = useApi<PeakHour[]>('/analytics/peak-hours');
+  const loading = loadingSales && sales.length === 0;
 
   // Aggregate profit by category for pie chart
   const categoryProfits = profits.reduce<Record<string, { name: string; value: number }>>((acc, item) => {

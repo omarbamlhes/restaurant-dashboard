@@ -1,6 +1,10 @@
 import { Controller, Get, Put, Param, Query, Request } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
+import { SkipSubscriptionCheck } from '../common/subscription.decorator';
 
+// Expiry and payment warnings are delivered here, so they must stay readable
+// even once the subscription lapses.
+@SkipSubscriptionCheck()
 @Controller('notifications')
 export class NotificationsController {
   constructor(private notificationsService: NotificationsService) {}

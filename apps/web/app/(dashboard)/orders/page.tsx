@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle, Printer } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import Receipt from '@/components/shared/Receipt';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { useApi } from '@/hooks/useApi';
 import { cn, formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -54,10 +55,6 @@ interface Order {
 }
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const limit = 15;
 
@@ -72,6 +69,21 @@ export default function OrdersPage() {
   // Receipt
   const [receiptOrder, setReceiptOrder] = useState<any>(null);
 
+  // SWR-cached orders list. The key carries page + filters, so paging and
+  // filtering serve cache instantly and revalidate on window focus.
+  const ordersParams = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (statusFilter) ordersParams.set('status', statusFilter);
+  if (typeFilter) ordersParams.set('type', typeFilter);
+  if (branchFilter) ordersParams.set('branchId', branchFilter);
+  const { data: ordersResp, loading, mutate } = useApi<{ data: Order[]; total: number }>(
+    `/orders?${ordersParams}`,
+    { revalidateOnFocus: true },
+  );
+  const orders = ordersResp?.data ?? [];
+  const total = ordersResp?.total ?? 0;
+
+  const { data: branches = [] } = useApi<Branch[]>('/branches');
+
   async function openReceipt(orderId: string) {
     try {
       const { data } = await api.get(`/orders/${orderId}/receipt`);
@@ -81,35 +93,10 @@ export default function OrdersPage() {
     }
   }
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: any = { page, limit };
-      if (statusFilter) params.status = statusFilter;
-      if (typeFilter) params.type = typeFilter;
-      if (branchFilter) params.branchId = branchFilter;
-      const { data } = await api.get('/orders', { params });
-      setOrders(data.data);
-      setTotal(data.total);
-    } catch {
-      toast.error('فشل تحميل الطلبات');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, statusFilter, typeFilter, branchFilter]);
-
-  useEffect(() => {
-    api.get('/branches').then(res => setBranches(res.data)).catch(() => toast.error('فشل تحميل الفروع'));
-  }, []);
-
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
-
   async function updateStatus(orderId: string, newStatus: string) {
     try {
       await api.put(`/orders/${orderId}/status`, { status: newStatus });
-      fetchOrders();
+      mutate();
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
       }

@@ -6,7 +6,7 @@ import { CreateCustomerDto, UpdateCustomerDto } from './dto/create-customer.dto'
 export class CustomersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(restaurantId: string, search?: string) {
+  async findAll(restaurantId: string, search?: string, page?: number, limit?: number) {
     const where: any = { restaurantId };
     if (search) {
       where.OR = [
@@ -16,25 +16,36 @@ export class CustomersService {
       ];
     }
 
-    return this.prisma.customer.findMany({
-      where,
-      orderBy: { totalSpent: 'desc' },
-      include: {
-        orders: {
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-          select: {
-            id: true,
-            orderNumber: true,
-            total: true,
-            status: true,
-            type: true,
-            createdAt: true,
+    const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const currentPage = Math.max(Number(page) || 1, 1);
+    const skip = (currentPage - 1) * take;
+
+    const [data, total] = await Promise.all([
+      this.prisma.customer.findMany({
+        where,
+        orderBy: { totalSpent: 'desc' },
+        skip,
+        take,
+        include: {
+          orders: {
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+            select: {
+              id: true,
+              orderNumber: true,
+              total: true,
+              status: true,
+              type: true,
+              createdAt: true,
+            },
           },
+          _count: { select: { orders: true } },
         },
-        _count: { select: { orders: true } },
-      },
-    });
+      }),
+      this.prisma.customer.count({ where }),
+    ]);
+
+    return { data, total, page: currentPage, limit: take, totalPages: Math.ceil(total / take) };
   }
 
   async findOne(id: string, restaurantId: string) {

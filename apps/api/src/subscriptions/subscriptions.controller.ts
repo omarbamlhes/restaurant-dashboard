@@ -5,7 +5,11 @@ import { CreateSubscriptionDto, UpgradeSubscriptionDto, InitiateCheckoutDto, Ver
 import { Roles } from '../common/roles.decorator';
 import { Public } from '../common/public.decorator';
 import { RestaurantHelper } from '../common/restaurant.helper';
+import { SkipSubscriptionCheck } from '../common/subscription.decorator';
 
+// Billing must stay reachable while a subscription is expired, past due, or
+// missing — otherwise a locked-out restaurant could never pay to get back in.
+@SkipSubscriptionCheck()
 @Controller('subscriptions')
 export class SubscriptionsController {
   constructor(

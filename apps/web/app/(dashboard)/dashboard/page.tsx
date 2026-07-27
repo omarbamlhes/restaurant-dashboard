@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { DollarSign, ShoppingBag, TrendingUp, Receipt } from 'lucide-react';
+import { useState } from 'react';
+import { DollarSign, ShoppingBag, TrendingUp, Receipt, CalendarDays, CalendarRange, UtensilsCrossed, ShoppingCart, Truck } from 'lucide-react';
 import StatsCard from '@/components/dashboard/StatsCard';
 import SalesChart from '@/components/charts/SalesChart';
 import RecentOrders from '@/components/dashboard/RecentOrders';
 import TopItems from '@/components/dashboard/TopItems';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
-import toast from 'react-hot-toast';
-import api from '@/lib/api';
-import { formatSAR } from '@/lib/utils';
+import BranchFilter from '@/components/dashboard/BranchFilter';
+import { useApi } from '@/hooks/useApi';
+import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
 interface OverviewData {
@@ -21,34 +21,56 @@ interface OverviewData {
   ordersChange: number;
   profitChange: number;
   avgChange: number;
+  thisWeekRevenue: number;
+  thisWeekOrders: number;
+  weekRevenueChange: number;
+  weekOrdersChange: number;
+  thisMonthRevenue: number;
+  thisMonthOrders: number;
+  monthRevenueChange: number;
+  monthOrdersChange: number;
+  ordersByType: { DINE_IN: number; TAKEAWAY: number; DELIVERY: number };
   topItems: any[];
   recentOrders: any[];
   salesChart: any[];
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [branchId, setBranchId] = useState('all');
 
-  useEffect(() => {
-    api.get('/analytics/overview')
-      .then((res) => setData(res.data))
-      .catch(() => toast.error('فشل تحميل بيانات لوحة التحكم'))
-      .finally(() => setLoading(false));
-  }, []);
+  // SWR caches per branch, dedupes, and revalidates in the background — so
+  // switching branches back and forth is instant instead of refetching.
+  const { data, loading } = useApi<OverviewData>(
+    `/analytics/overview${branchId !== 'all' ? `?branchId=${branchId}` : ''}`,
+  );
 
-  if (loading) return <DashboardSkeleton />;
+  // Only show the full skeleton on first load; on branch switches keep the
+  // current view (and the filter) visible while fresh data loads.
+  if (loading && !data) return <DashboardSkeleton />;
   if (!data) return null;
+
+  const totalTypeOrders = data.ordersByType.DINE_IN + data.ordersByType.TAKEAWAY + data.ordersByType.DELIVERY;
+  const typePercent = (val: number) => totalTypeOrders > 0 ? Math.round((val / totalTypeOrders) * 100) : 0;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">لوحة التحكم</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">ملخص أداء مطعمك اليوم</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">لوحة التحكم</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">ملخص أداء مطعمك اليوم</p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <BranchFilter value={branchId} onChange={setBranchId} />
+          <div className="text-left">
+            <p className="text-sm font-medium text-gray-900 dark:text-white">
+              {new Date().toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Today Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">
         <StatsCard
           title="إيرادات اليوم"
@@ -80,13 +102,156 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Sales Chart */}
-      <SalesChart data={data.salesChart} />
+      {/* Week & Month Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
+        {/* Weekly */}
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <CalendarDays className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">ملخص الأسبوع</h3>
+              <p className="text-xs text-gray-600 dark:text-gray-400">مقارنة بالأسبوع الماضي</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">الإيرادات</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{formatSAR(data.thisWeekRevenue)} <SARSymbol /></p>
+              <ChangeIndicator value={data.weekRevenueChange} />
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">الطلبات</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{formatNumber(data.thisWeekOrders)}</p>
+              <ChangeIndicator value={data.weekOrdersChange} />
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly */}
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+              <CalendarRange className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">ملخص الشهر</h3>
+              <p className="text-xs text-gray-400">مقارنة بالشهر الماضي</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">الإيرادات</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{formatSAR(data.thisMonthRevenue)} <SARSymbol /></p>
+              <ChangeIndicator value={data.monthRevenueChange} />
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">الطلبات</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{formatNumber(data.thisMonthOrders)}</p>
+              <ChangeIndicator value={data.monthOrdersChange} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sales Chart + Order Types */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <SalesChart data={data.salesChart} />
+        </div>
+
+        {/* Order Types Breakdown */}
+        <div className="glass-card p-6 animate-fade-in-up">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">توزيع الطلبات</h3>
+          <div className="space-y-5">
+            <OrderTypeBar
+              icon={UtensilsCrossed}
+              label="محلي"
+              count={data.ordersByType.DINE_IN}
+              percent={typePercent(data.ordersByType.DINE_IN)}
+              color="emerald"
+            />
+            <OrderTypeBar
+              icon={ShoppingCart}
+              label="سفري"
+              count={data.ordersByType.TAKEAWAY}
+              percent={typePercent(data.ordersByType.TAKEAWAY)}
+              color="blue"
+            />
+            <OrderTypeBar
+              icon={Truck}
+              label="توصيل"
+              count={data.ordersByType.DELIVERY}
+              percent={typePercent(data.ordersByType.DELIVERY)}
+              color="amber"
+            />
+          </div>
+          {totalTypeOrders === 0 && (
+            <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-8">لا توجد طلبات اليوم</p>
+          )}
+          {totalTypeOrders > 0 && (
+            <div className="mt-6 pt-4 border-t border-gray-100 dark:border-dark-border/50 text-center">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{formatNumber(totalTypeOrders)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">إجمالي طلبات اليوم</p>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Bottom row: Top Items + Recent Orders */}
       <div className="grid lg:grid-cols-2 gap-6">
         <TopItems items={data.topItems} />
         <RecentOrders orders={data.recentOrders} />
+      </div>
+    </div>
+  );
+}
+
+function ChangeIndicator({ value }: { value: number }) {
+  if (value === 0) return <span className="text-xs text-gray-400">— بدون تغيير</span>;
+  return (
+    <span className={cn(
+      'text-xs font-semibold',
+      value > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400',
+    )}>
+      {value > 0 ? '\u25B2' : '\u25BC'} {Math.abs(value).toFixed(1)}%
+      <span className="font-normal text-gray-400 mr-1">
+        {value > 0 ? 'ارتفاع' : 'انخفاض'}
+      </span>
+    </span>
+  );
+}
+
+const typeColors = {
+  emerald: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', icon: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500' },
+  blue: { bg: 'bg-blue-100 dark:bg-blue-900/30', icon: 'text-blue-600 dark:text-blue-400', bar: 'bg-blue-500' },
+  amber: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: 'text-amber-600 dark:text-amber-400', bar: 'bg-amber-500' },
+};
+
+function OrderTypeBar({ icon: Icon, label, count, percent, color }: {
+  icon: any; label: string; count: number; percent: number; color: 'emerald' | 'blue' | 'amber';
+}) {
+  const c = typeColors[color];
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2.5">
+          <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', c.bg)}>
+            <Icon className={cn('w-4 h-4', c.icon)} />
+          </div>
+          <span className="text-sm font-medium text-gray-900 dark:text-white">{label}</span>
+        </div>
+        <div className="text-left">
+          <span className="text-sm font-bold text-gray-900 dark:text-white">{formatNumber(count)}</span>
+          <span className="text-xs text-gray-400 mr-1">({percent}%)</span>
+        </div>
+      </div>
+      <div className="w-full bg-gray-100 dark:bg-dark-card rounded-full h-2">
+        <div
+          className={cn('h-full rounded-full transition-all duration-700', c.bar)}
+          style={{ width: `${percent}%` }}
+        />
       </div>
     </div>
   );

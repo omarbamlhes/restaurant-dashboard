@@ -8,6 +8,7 @@ import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
+import { useAuthStore } from '@/stores/authStore';
 
 interface Employee {
   id: string;
@@ -51,6 +52,8 @@ export default function EmployeesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const { user } = useAuthStore();
+  const isOwner = user?.role === 'OWNER';
 
   // Fetch branches once on mount (independent of filters)
   useEffect(() => {
@@ -146,10 +149,12 @@ export default function EmployeesPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">الموظفين</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة فريق العمل</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
-          <Plus className="w-4 h-4" />
-          موظف جديد
-        </button>
+        {isOwner && (
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" />
+            موظف جديد
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -196,17 +201,18 @@ export default function EmployeesPage() {
             icon={Users}
             title="لا يوجد موظفين"
             description="أضف أول موظف لفريق العمل"
-            action={
+            action={isOwner ?
               <button onClick={openCreate} className="btn-primary text-sm flex items-center gap-2">
                 <Plus className="w-4 h-4" />
                 إضافة موظف
-              </button>
+              </button> : undefined
             }
           />
         </div>
       ) : (
         <div className="glass-card overflow-hidden animate-fade-in-up">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-dark-border">
@@ -216,7 +222,7 @@ export default function EmployeesPage() {
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الجوال</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الراتب</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الحالة</th>
-                  <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">إجراءات</th>
+                  {isOwner && <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">إجراءات</th>}
                 </tr>
               </thead>
               <tbody>
@@ -255,22 +261,65 @@ export default function EmployeesPage() {
                         {emp.isActive ? 'نشط' : 'معطّل'}
                       </span>
                     </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => openEdit(emp)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
-                          <Pencil className="w-4 h-4 text-gray-400 hover:text-primary-600" />
-                        </button>
-                        {emp.isActive && (
-                          <button onClick={() => handleDelete(emp.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                            <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-600" />
+                    {isOwner && (
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openEdit(emp)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
+                            <Pencil className="w-4 h-4 text-gray-400 hover:text-primary-600" />
                           </button>
-                        )}
-                      </div>
-                    </td>
+                          {emp.isActive && (
+                            <button onClick={() => handleDelete(emp.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                              <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-600" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden divide-y divide-gray-100 dark:divide-dark-border/50">
+            {employees.map((emp) => (
+              <div key={emp.id} className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center">
+                      <span className="text-sm font-bold text-primary-600 dark:text-primary-400">{emp.nameAr.charAt(0)}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{emp.nameAr}</p>
+                      <p className="text-xs text-gray-400">{emp.branch.nameAr}</p>
+                    </div>
+                  </div>
+                  <span className={cn('text-xs px-2 py-1 rounded-lg', emp.isActive ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400')}>
+                    {emp.isActive ? 'نشط' : 'معطّل'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="px-2 py-0.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{emp.role}</span>
+                    {emp.phone && <span dir="ltr">{emp.phone}</span>}
+                    {emp.salary && <span>{formatSAR(Number(emp.salary))} <SARSymbol /></span>}
+                  </div>
+                  {isOwner && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(emp)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors" aria-label="تعديل">
+                        <Pencil className="w-4 h-4 text-gray-400 hover:text-primary-600" />
+                      </button>
+                      {emp.isActive && (
+                        <button onClick={() => handleDelete(emp.id)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" aria-label="حذف">
+                          <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-600" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

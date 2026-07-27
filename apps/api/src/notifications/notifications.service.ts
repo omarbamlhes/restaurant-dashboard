@@ -1,9 +1,38 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class NotificationsService {
   constructor(private prisma: PrismaService) {}
+
+  async create(data: {
+    userId: string;
+    title: string;
+    titleAr: string;
+    message: string;
+    messageAr: string;
+    type: NotificationType;
+    data?: any;
+  }) {
+    return this.prisma.notification.create({ data });
+  }
+
+  async createForRestaurantOwner(restaurantId: string, notification: {
+    title: string;
+    titleAr: string;
+    message: string;
+    messageAr: string;
+    type: NotificationType;
+    data?: any;
+  }) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { ownerId: true },
+    });
+    if (!restaurant) return null;
+    return this.create({ ...notification, userId: restaurant.ownerId });
+  }
 
   async findAll(userId: string, filters: { type?: string; isRead?: string }) {
     const { type, isRead } = filters;

@@ -1,54 +1,58 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Request } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-employee.dto';
-import { PrismaService } from '../prisma/prisma.service';
+import { Roles } from '../common/roles.decorator';
+import { Permission } from '../common/permission.decorator';
+import { RestaurantHelper } from '../common/restaurant.helper';
+import { RequiresFeature } from '../common/subscription.decorator';
 
+@RequiresFeature('employees')
 @Controller('employees')
-@UseGuards(AuthGuard('jwt'))
+@Permission('employees')
 export class EmployeesController {
   constructor(
     private employeesService: EmployeesService,
-    private prisma: PrismaService,
+    private restaurantHelper: RestaurantHelper,
   ) {}
 
-  private async getRestaurantId(userId: string): Promise<string> {
-    const r = await this.prisma.restaurant.findUnique({ where: { ownerId: userId } });
-    return r!.id;
-  }
-
   @Get()
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
   async findAll(
     @Request() req,
     @Query('branchId') branchId?: string,
     @Query('role') role?: string,
     @Query('isActive') isActive?: string,
   ) {
-    const rid = await this.getRestaurantId(req.user.sub);
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.employeesService.findAll(rid, { branchId, role, isActive });
   }
 
   @Post()
+  @Roles(UserRole.OWNER)
   async create(@Request() req, @Body() dto: CreateEmployeeDto) {
-    const rid = await this.getRestaurantId(req.user.sub);
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.employeesService.create(rid, dto);
   }
 
   @Get(':id')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
   async findOne(@Request() req, @Param('id') id: string) {
-    const rid = await this.getRestaurantId(req.user.sub);
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.employeesService.findOne(id, rid);
   }
 
   @Put(':id')
+  @Roles(UserRole.OWNER)
   async update(@Request() req, @Param('id') id: string, @Body() dto: UpdateEmployeeDto) {
-    const rid = await this.getRestaurantId(req.user.sub);
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.employeesService.update(id, rid, dto);
   }
 
   @Delete(':id')
+  @Roles(UserRole.OWNER)
   async remove(@Request() req, @Param('id') id: string) {
-    const rid = await this.getRestaurantId(req.user.sub);
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.employeesService.remove(id, rid);
   }
 }

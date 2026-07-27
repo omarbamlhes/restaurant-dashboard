@@ -1,4 +1,4 @@
-import { PrismaClient, OrderType, OrderStatus, InventoryAction, NotificationType } from '@prisma/client';
+import { PrismaClient, OrderType, OrderStatus, PaymentMethod, InventoryAction, NotificationType, TableStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -23,10 +23,12 @@ async function main() {
           name: 'Shawarma House',
           nameAr: 'بيت الشاورما',
           phone: '0112345678',
+          email: 'info@shawarmahouse.sa',
+          taxNumber: '300123456700003',
           branches: {
             create: [
-              { name: 'Main Branch', nameAr: 'الفرع الرئيسي - الرياض', address: 'طريق الملك فهد، الرياض', city: 'الرياض', isMain: true },
-              { name: 'Jeddah Branch', nameAr: 'فرع جدة', address: 'شارع التحلية، جدة', city: 'جدة' },
+              { name: 'Main Branch', nameAr: 'الفرع الرئيسي - الرياض', address: 'طريق الملك فهد، حي العليا', city: 'الرياض', isMain: true, latitude: 24.7136, longitude: 46.6753 },
+              { name: 'Jeddah Branch', nameAr: 'فرع جدة', address: 'شارع التحلية، حي الأندلس', city: 'جدة', latitude: 21.5433, longitude: 39.1728 },
             ],
           },
         },
@@ -38,6 +40,69 @@ async function main() {
   const restaurant = user.restaurant!;
   const mainBranch = restaurant.branches.find((b) => b.isMain)!;
   const jeddahBranch = restaurant.branches.find((b) => !b.isMain)!;
+
+  // Staff accounts
+  console.log('👤 Creating staff accounts...');
+  const staffPassword = await bcrypt.hash('123456', 10);
+
+  await prisma.user.upsert({
+    where: { email: 'manager@demo.com' },
+    update: {},
+    create: {
+      email: 'manager@demo.com',
+      password: staffPassword,
+      name: 'سارة المنصور',
+      phone: '0559876543',
+      role: 'MANAGER',
+      restaurantId: restaurant.id,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'staff@demo.com' },
+    update: {},
+    create: {
+      email: 'staff@demo.com',
+      password: staffPassword,
+      name: 'عبدالله الشهري',
+      phone: '0553216549',
+      role: 'STAFF',
+      permissions: ['pos', 'kitchen', 'notifications'],
+      restaurantId: restaurant.id,
+    },
+  });
+
+  // Check if data already exists (skip if re-running)
+  const existingCategories = await prisma.category.findMany({ where: { restaurantId: restaurant.id } });
+  if (existingCategories.length > 0) {
+    // Still seed new features (customers) if missing
+    const existingCustomers = await prisma.customer.count({ where: { restaurantId: restaurant.id } });
+    if (existingCustomers === 0) {
+      console.log('👥 Adding customers...');
+      const customersData = [
+        { name: 'عبدالرحمن السالم', phone: '0551001001', email: 'abdulrahman@gmail.com', totalOrders: 45, totalSpent: 3250, lastOrderAt: new Date(Date.now() - 86400000) },
+        { name: 'فاطمة الحربي', phone: '0552002002', email: 'fatima.h@gmail.com', totalOrders: 38, totalSpent: 2890, lastOrderAt: new Date(Date.now() - 172800000) },
+        { name: 'خالد المطيري', phone: '0553003003', notes: 'حساسية من المكسرات', totalOrders: 32, totalSpent: 2450, lastOrderAt: new Date(Date.now() - 259200000) },
+        { name: 'نورة العتيبي', phone: '0554004004', email: 'noura.o@hotmail.com', totalOrders: 28, totalSpent: 1980, lastOrderAt: new Date(Date.now() - 86400000 * 5) },
+        { name: 'سعود الدوسري', phone: '0555005005', totalOrders: 22, totalSpent: 1650, lastOrderAt: new Date(Date.now() - 86400000 * 2) },
+        { name: 'ريم القحطاني', phone: '0556006006', email: 'reem.q@gmail.com', notes: 'تفضل الأكل بدون حار', totalOrders: 18, totalSpent: 1340, lastOrderAt: new Date(Date.now() - 86400000 * 7) },
+        { name: 'محمد الشمري', phone: '0557007007', totalOrders: 15, totalSpent: 1120, lastOrderAt: new Date(Date.now() - 86400000 * 10) },
+        { name: 'هند العنزي', phone: '0558008008', email: 'hind@outlook.com', totalOrders: 12, totalSpent: 890, lastOrderAt: new Date(Date.now() - 86400000 * 3) },
+        { name: 'تركي الرشيدي', phone: '0559009009', totalOrders: 8, totalSpent: 620, lastOrderAt: new Date(Date.now() - 86400000 * 15) },
+        { name: 'لمى السبيعي', phone: '0550100100', email: 'lama.s@gmail.com', notes: 'عميلة VIP - خصم 10%', totalOrders: 52, totalSpent: 4150, lastOrderAt: new Date() },
+        { name: 'يزيد الحارثي', phone: '0550200200', totalOrders: 5, totalSpent: 380, lastOrderAt: new Date(Date.now() - 86400000 * 20) },
+        { name: 'أمل الزهراني', phone: '0550300300', email: 'amal.z@gmail.com', totalOrders: 10, totalSpent: 750, lastOrderAt: new Date(Date.now() - 86400000 * 4) },
+      ];
+      for (const c of customersData) {
+        await prisma.customer.create({ data: { ...c, restaurantId: restaurant.id } });
+      }
+      console.log(`✅ Added ${customersData.length} customers`);
+    }
+
+    console.log('⏭️  Data already exists, skipping rest of seed...');
+    console.log('📧 Owner:   owner@demo.com / 123456');
+    return;
+  }
 
   // Categories
   const categories = await Promise.all([
@@ -80,18 +145,104 @@ async function main() {
     prisma.menuItem.create({ data: { name: 'Basbousa', nameAr: 'بسبوسة', price: 15, cost: 4, preparationTime: 5, categoryId: desserts.id, restaurantId: restaurant.id } }),
   ]);
 
-  // Generate 60 days of orders
+  // ============ CUSTOMERS ============
+  console.log('👥 Creating customers...');
+
+  const customersData = [
+    { name: 'عبدالرحمن السالم', phone: '0551001001', email: 'abdulrahman@gmail.com', totalOrders: 45, totalSpent: 3250, lastOrderAt: new Date(Date.now() - 86400000) },
+    { name: 'فاطمة الحربي', phone: '0552002002', email: 'fatima.h@gmail.com', totalOrders: 38, totalSpent: 2890, lastOrderAt: new Date(Date.now() - 172800000) },
+    { name: 'خالد المطيري', phone: '0553003003', notes: 'حساسية من المكسرات', totalOrders: 32, totalSpent: 2450, lastOrderAt: new Date(Date.now() - 259200000) },
+    { name: 'نورة العتيبي', phone: '0554004004', email: 'noura.o@hotmail.com', totalOrders: 28, totalSpent: 1980, lastOrderAt: new Date(Date.now() - 86400000 * 5) },
+    { name: 'سعود الدوسري', phone: '0555005005', totalOrders: 22, totalSpent: 1650, lastOrderAt: new Date(Date.now() - 86400000 * 2) },
+    { name: 'ريم القحطاني', phone: '0556006006', email: 'reem.q@gmail.com', notes: 'تفضل الأكل بدون حار', totalOrders: 18, totalSpent: 1340, lastOrderAt: new Date(Date.now() - 86400000 * 7) },
+    { name: 'محمد الشمري', phone: '0557007007', totalOrders: 15, totalSpent: 1120, lastOrderAt: new Date(Date.now() - 86400000 * 10) },
+    { name: 'هند العنزي', phone: '0558008008', email: 'hind@outlook.com', totalOrders: 12, totalSpent: 890, lastOrderAt: new Date(Date.now() - 86400000 * 3) },
+    { name: 'تركي الرشيدي', phone: '0559009009', totalOrders: 8, totalSpent: 620, lastOrderAt: new Date(Date.now() - 86400000 * 15) },
+    { name: 'لمى السبيعي', phone: '0550100100', email: 'lama.s@gmail.com', notes: 'عميلة VIP - خصم 10%', totalOrders: 52, totalSpent: 4150, lastOrderAt: new Date() },
+    { name: 'يزيد الحارثي', phone: '0550200200', totalOrders: 5, totalSpent: 380, lastOrderAt: new Date(Date.now() - 86400000 * 20) },
+    { name: 'أمل الزهراني', phone: '0550300300', email: 'amal.z@gmail.com', totalOrders: 10, totalSpent: 750, lastOrderAt: new Date(Date.now() - 86400000 * 4) },
+  ];
+
+  for (const c of customersData) {
+    await prisma.customer.create({
+      data: { ...c, restaurantId: restaurant.id },
+    });
+  }
+
+  // ============ TABLES ============
+  console.log('🪑 Creating tables...');
+
+  const mainTables = [
+    { number: 1, nameAr: 'طاولة العائلة', name: 'Family Table', capacity: 8, status: 'OCCUPIED' as TableStatus },
+    { number: 2, nameAr: null, name: null, capacity: 4, status: 'AVAILABLE' as TableStatus },
+    { number: 3, nameAr: null, name: null, capacity: 4, status: 'AVAILABLE' as TableStatus },
+    { number: 4, nameAr: 'طاولة VIP', name: 'VIP Table', capacity: 6, status: 'RESERVED' as TableStatus },
+    { number: 5, nameAr: null, name: null, capacity: 2, status: 'OCCUPIED' as TableStatus },
+    { number: 6, nameAr: null, name: null, capacity: 4, status: 'AVAILABLE' as TableStatus },
+    { number: 7, nameAr: 'الجلسة الخارجية', name: 'Outdoor', capacity: 6, status: 'AVAILABLE' as TableStatus },
+    { number: 8, nameAr: null, name: null, capacity: 2, status: 'AVAILABLE' as TableStatus },
+    { number: 9, nameAr: null, name: null, capacity: 4, status: 'OCCUPIED' as TableStatus },
+    { number: 10, nameAr: 'الصالة الخاصة', name: 'Private Room', capacity: 12, status: 'RESERVED' as TableStatus },
+  ];
+
+  const jeddahTables = [
+    { number: 1, nameAr: 'طاولة العائلة', name: 'Family Table', capacity: 8, status: 'AVAILABLE' as TableStatus },
+    { number: 2, nameAr: null, name: null, capacity: 4, status: 'OCCUPIED' as TableStatus },
+    { number: 3, nameAr: null, name: null, capacity: 4, status: 'AVAILABLE' as TableStatus },
+    { number: 4, nameAr: null, name: null, capacity: 2, status: 'AVAILABLE' as TableStatus },
+    { number: 5, nameAr: 'طاولة VIP', name: 'VIP Table', capacity: 6, status: 'AVAILABLE' as TableStatus },
+    { number: 6, nameAr: null, name: null, capacity: 4, status: 'RESERVED' as TableStatus },
+  ];
+
+  const createdTables: any[] = [];
+  for (const t of mainTables) {
+    const created = await prisma.table.upsert({
+      where: { branchId_number: { branchId: mainBranch.id, number: t.number } },
+      update: {},
+      create: { ...t, branchId: mainBranch.id },
+    });
+    createdTables.push(created);
+  }
+  for (const t of jeddahTables) {
+    const created = await prisma.table.upsert({
+      where: { branchId_number: { branchId: jeddahBranch.id, number: t.number } },
+      update: {},
+      create: { ...t, branchId: jeddahBranch.id },
+    });
+    createdTables.push(created);
+  }
+
+  // ============ ORDERS (60 days history) ============
   console.log('📦 Generating orders...');
   const types: OrderType[] = ['DINE_IN', 'TAKEAWAY', 'DELIVERY'];
   const statuses: OrderStatus[] = ['COMPLETED', 'COMPLETED', 'COMPLETED', 'COMPLETED', 'CANCELLED'];
+  const paymentMethods: PaymentMethod[] = ['CASH', 'CASH', 'CARD', 'CARD', 'SPLIT'];
+
+  // Track daily revenue for DailySummary
+  const dailyData: Record<string, { orders: number; revenue: number; cost: number; branch: string }> = {};
 
   for (let dayOffset = 59; dayOffset >= 0; dayOffset--) {
     const date = new Date();
     date.setDate(date.getDate() - dayOffset);
-    const ordersCount = 15 + Math.floor(Math.random() * 25); // 15-40 orders/day
+    const dateKey = date.toISOString().split('T')[0];
+    // Weekend boost (Thu/Fri in Saudi)
+    const dayOfWeek = date.getDay();
+    const isWeekend = dayOfWeek === 4 || dayOfWeek === 5;
+    const ordersCount = isWeekend
+      ? 30 + Math.floor(Math.random() * 20)
+      : 15 + Math.floor(Math.random() * 20);
+
+    let dayRevenue = 0;
+    let dayCost = 0;
 
     for (let i = 0; i < ordersCount; i++) {
-      const hour = 10 + Math.floor(Math.random() * 13); // 10am-11pm
+      // Peak hours: 12-2pm lunch, 7-10pm dinner
+      const peakRoll = Math.random();
+      let hour: number;
+      if (peakRoll < 0.35) hour = 12 + Math.floor(Math.random() * 2); // lunch
+      else if (peakRoll < 0.75) hour = 19 + Math.floor(Math.random() * 3); // dinner
+      else hour = 10 + Math.floor(Math.random() * 13); // other
+
       const orderDate = new Date(date);
       orderDate.setHours(hour, Math.floor(Math.random() * 60));
 
@@ -107,28 +258,107 @@ async function main() {
           quantity: qty,
           unitPrice: Number(mi.price),
           totalPrice: Number(mi.price) * qty,
+          notes: Math.random() < 0.15 ? 'بدون بصل' : Math.random() < 0.1 ? 'حار زيادة' : undefined,
         });
       }
 
-      const subtotal = selectedItems.reduce((s, i) => s + i.totalPrice, 0);
-      const tax = Math.round(subtotal * 0.15 * 100) / 100;
-      const total = subtotal + tax;
+      const subtotal = selectedItems.reduce((s, item) => s + item.totalPrice, 0);
+      const discount = Math.random() < 0.1 ? Math.round(subtotal * 0.1 * 100) / 100 : 0;
+      const tax = Math.round((subtotal - discount) * 0.15 * 100) / 100;
+      const total = subtotal - discount + tax;
+      const pm = paymentMethods[Math.floor(Math.random() * paymentMethods.length)];
+      const status = statuses[Math.floor(Math.random() * statuses.length)];
+
+      const orderType = types[Math.floor(Math.random() * types.length)];
 
       await prisma.order.create({
         data: {
-          orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}-${dayOffset}-${i}`,
-          type: types[Math.floor(Math.random() * types.length)],
-          status: statuses[Math.floor(Math.random() * statuses.length)],
+          orderNumber: `ORD-${(60 - dayOffset).toString().padStart(3, '0')}-${(i + 1).toString().padStart(3, '0')}`,
+          type: orderType,
+          status,
           branchId: branch.id,
+          tableId: orderType === 'DINE_IN' && Math.random() > 0.3
+            ? createdTables.find(t => t.branchId === branch.id && t.status === 'AVAILABLE')?.id
+            : undefined,
           subtotal,
           tax,
-          discount: 0,
+          discount,
           total,
+          paymentMethod: pm,
+          paymentStatus: 'PAID',
+          paidAmount: total,
+          cashAmount: pm === 'CASH' ? total : pm === 'SPLIT' ? Math.round(total * 0.5 * 100) / 100 : 0,
+          cardAmount: pm === 'CARD' ? total : pm === 'SPLIT' ? Math.round(total * 0.5 * 100) / 100 : 0,
+          changeAmount: pm === 'CASH' ? Math.ceil(total / 10) * 10 - total : 0,
           createdAt: orderDate,
           items: { create: selectedItems },
         },
       });
+
+      if (status === 'COMPLETED') {
+        dayRevenue += total;
+        const itemCost = selectedItems.reduce((s, item) => {
+          const mi = menuItems.find(m => m.id === item.menuItemId);
+          return s + (mi ? Number(mi.cost || 0) * item.quantity : 0);
+        }, 0);
+        dayCost += itemCost;
+      }
     }
+
+    // Save daily summary
+    dailyData[dateKey] = { orders: ordersCount, revenue: dayRevenue, cost: dayCost, branch: mainBranch.id };
+  }
+
+  // ============ TODAY'S ACTIVE ORDERS (for Kitchen) ============
+  console.log('🍳 Creating active orders for kitchen...');
+
+  const activeOrders = [
+    { status: 'PENDING' as OrderStatus, type: 'DINE_IN' as OrderType, minutesAgo: 2, items: [0, 4, 14] },
+    { status: 'PENDING' as OrderStatus, type: 'TAKEAWAY' as OrderType, minutesAgo: 5, items: [1, 10, 11] },
+    { status: 'PREPARING' as OrderStatus, type: 'DINE_IN' as OrderType, minutesAgo: 12, items: [7, 5, 16] },
+    { status: 'PREPARING' as OrderStatus, type: 'DELIVERY' as OrderType, minutesAgo: 8, items: [2, 13, 15] },
+    { status: 'READY' as OrderStatus, type: 'TAKEAWAY' as OrderType, minutesAgo: 18, items: [3, 6] },
+    { status: 'PENDING' as OrderStatus, type: 'DINE_IN' as OrderType, minutesAgo: 1, items: [8, 17, 14] },
+  ];
+
+  let activeIdx = 1;
+  for (const ao of activeOrders) {
+    const orderDate = new Date();
+    orderDate.setMinutes(orderDate.getMinutes() - ao.minutesAgo);
+
+    const selectedItems = ao.items.map(idx => {
+      const mi = menuItems[idx];
+      const qty = 1 + Math.floor(Math.random() * 2);
+      return {
+        menuItemId: mi.id,
+        quantity: qty,
+        unitPrice: Number(mi.price),
+        totalPrice: Number(mi.price) * qty,
+        notes: activeIdx === 1 ? 'بدون حار' : activeIdx === 3 ? 'ناشف الرز' : undefined,
+      };
+    });
+
+    const subtotal = selectedItems.reduce((s, item) => s + item.totalPrice, 0);
+    const tax = Math.round(subtotal * 0.15 * 100) / 100;
+    const total = subtotal + tax;
+
+    await prisma.order.create({
+      data: {
+        orderNumber: `ORD-TODAY-${(activeIdx++).toString().padStart(3, '0')}`,
+        type: ao.type,
+        status: ao.status,
+        branchId: mainBranch.id,
+        subtotal,
+        tax,
+        discount: 0,
+        total,
+        paymentMethod: 'CASH',
+        paymentStatus: ao.status === 'READY' ? 'PAID' : 'UNPAID',
+        paidAmount: ao.status === 'READY' ? total : 0,
+        createdAt: orderDate,
+        items: { create: selectedItems },
+      },
+    });
   }
 
   // ============ EMPLOYEES ============
@@ -305,11 +535,108 @@ async function main() {
     await prisma.notification.create({ data: n });
   }
 
+  // ============ DAILY SUMMARIES ============
+  console.log('📊 Generating daily summaries...');
+
+  for (const [dateKey, data] of Object.entries(dailyData)) {
+    const profit = data.revenue - data.cost;
+    await prisma.dailySummary.create({
+      data: {
+        restaurantId: restaurant.id,
+        branchId: mainBranch.id,
+        date: new Date(dateKey),
+        totalOrders: data.orders,
+        totalRevenue: Math.round(data.revenue * 100) / 100,
+        totalCost: Math.round(data.cost * 100) / 100,
+        totalProfit: Math.round(profit * 100) / 100,
+        topItems: menuItems.slice(0, 5).map(m => ({ id: m.id, name: m.nameAr, count: Math.floor(Math.random() * 20) + 5 })),
+        wasteAmount: Math.round(Math.random() * 200 * 100) / 100,
+      },
+    });
+  }
+
+  console.log('');
   console.log('✅ Seed complete!');
-  console.log('📧 Login: owner@demo.com / 123456');
-  console.log(`👥 ${employees.length} employees created`);
-  console.log(`📦 ${ingredients.length} ingredients created`);
-  console.log(`🔔 ${notifications.length} notifications created`);
+  console.log('══════════════════════════════════');
+  console.log('📧 Owner:   owner@demo.com / 123456');
+  console.log('📧 Manager: manager@demo.com / 123456');
+  console.log('📧 Staff:   staff@demo.com / 123456');
+  console.log('══════════════════════════════════');
+  console.log(`🏢 ${2} branches`);
+  console.log(`🪑 ${mainTables.length + jeddahTables.length} tables`);
+  console.log(`🍽️  ${menuItems.length} menu items`);
+  console.log(`👥 ${employees.length} employees`);
+  console.log(`📦 ${ingredients.length} ingredients`);
+  console.log(`🔔 ${notifications.length} notifications`);
+  console.log(`🍳 ${activeOrders.length} active orders (kitchen)`);
+  console.log(`📊 ${Object.keys(dailyData).length} days of history`);
+
+  // ============ SUBSCRIPTION & BILLING ============
+  console.log('💳 Creating subscription data...');
+
+  const now = new Date();
+  const periodStart = new Date(now);
+  periodStart.setMonth(periodStart.getMonth() - 1);
+  const periodEnd = new Date(now);
+  periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+  const subscription = await prisma.subscription.upsert({
+    where: { restaurantId: restaurant.id },
+    update: {},
+    create: {
+      restaurantId: restaurant.id,
+      plan: 'PRO',
+      status: 'ACTIVE',
+      billingCycle: 'MONTHLY',
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+    },
+  });
+
+  // Sample invoices
+  const invoiceMonths = [3, 2, 1];
+  for (const monthsAgo of invoiceMonths) {
+    const invStart = new Date(now);
+    invStart.setMonth(invStart.getMonth() - monthsAgo);
+    const invEnd = new Date(invStart);
+    invEnd.setMonth(invEnd.getMonth() + 1);
+    const invNum = `INV-${invStart.getFullYear()}${String(invStart.getMonth() + 1).padStart(2, '0')}01-${String(4 - monthsAgo).padStart(3, '0')}`;
+
+    await prisma.invoice.upsert({
+      where: { invoiceNumber: invNum },
+      update: {},
+      create: {
+        invoiceNumber: invNum,
+        subscriptionId: subscription.id,
+        amount: 699,
+        tax: 104.85,
+        totalAmount: 803.85,
+        status: 'PAID',
+        paidAt: invStart,
+        periodStart: invStart,
+        periodEnd: invEnd,
+      },
+    });
+  }
+
+  // Sample payment method
+  const existingPM = await prisma.subPaymentMethod.findFirst({
+    where: { subscriptionId: subscription.id },
+  });
+  if (!existingPM) {
+    await prisma.subPaymentMethod.create({
+      data: {
+        subscriptionId: subscription.id,
+        type: 'MADA',
+        last4: '4532',
+        expiry: '12/28',
+        isDefault: true,
+      },
+    });
+  }
+
+  console.log(`💳 Subscription: ${subscription.plan} (${subscription.status})`);
+  console.log(`📄 ${invoiceMonths.length} invoices created`);
 }
 
 main()

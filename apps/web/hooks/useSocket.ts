@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket, disconnectSocket } from '@/lib/socket';
+import { getSocket } from '@/lib/socket';
 
 export function useSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -24,7 +24,6 @@ export function useSocket() {
     return () => {
       s.off('connect', onConnect);
       s.off('disconnect', onDisconnect);
-      disconnectSocket();
     };
   }, []);
 

@@ -1,0 +1,32 @@
+**/node_modules
+**/.next
+**/dist
+**/build
+**/coverage
+**/.turbo
+**/.cache
+**/*.log
+**/.DS_Store
+
+# Env files — never bake into images
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Git
+.git
+.gitignore
+.github
+
+# Editor
+.vscode
+.idea
+
+# Docker
+docker-compose*.yml
+**/Dockerfile
+
+# Misc
+README.md
+SUBSCRIPTION_PLAN.md
+**/*.tsbuildinfo

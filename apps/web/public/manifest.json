@@ -1,0 +1,33 @@
+{
+  "name": "رستق | منصة إدارة المطاعم الذكية",
+  "short_name": "رستق",
+  "description": "منصة تحليلات وإدارة ذكية للمطاعم والمقاهي في السعودية",
+  "start_url": "/pos",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1729",
+  "theme_color": "#1e5740",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "نقطة البيع",
+      "short_name": "POS",
+      "url": "/pos"
+    },
+    {
+      "name": "شاشة المطبخ",
+      "short_name": "المطبخ",
+      "url": "/kitchen"
+    }
+  ]
+}

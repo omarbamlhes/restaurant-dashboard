@@ -3,6 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/authStore';
+import { hasPermission, type Permission } from '@/lib/permissions';
+import RustaqIcon from '@/components/brand/RustaqIcon';
 import {
   LayoutDashboard,
   UtensilsCrossed,
@@ -14,24 +17,33 @@ import {
   Settings,
   Bell,
   ChevronLeft,
-  TrendingUp,
   Monitor,
   ChefHat,
+  Armchair,
+  UserCircle,
   X,
+  CalendarClock,
+  ReceiptText,
+  Sparkles,
 } from 'lucide-react';
 
-const navItems = [
-  { href: '/dashboard', label: 'الرئيسية', icon: LayoutDashboard },
-  { href: '/pos', label: 'نقطة البيع', icon: Monitor },
-  { href: '/kitchen', label: 'المطبخ', icon: ChefHat },
-  { href: '/menu', label: 'القائمة', icon: UtensilsCrossed },
-  { href: '/analytics', label: 'التحليلات', icon: BarChart3 },
-  { href: '/inventory', label: 'المخزون', icon: Package },
-  { href: '/branches', label: 'الفروع', icon: Building2 },
-  { href: '/employees', label: 'الموظفين', icon: Users },
-  { href: '/reports', label: 'التقارير', icon: FileText },
-  { href: '/notifications', label: 'الإشعارات', icon: Bell },
-  { href: '/settings', label: 'الإعدادات', icon: Settings },
+const navItems: { href: string; label: string; icon: any; permission: Permission }[] = [
+  { href: '/dashboard', label: 'الرئيسية', icon: LayoutDashboard, permission: 'dashboard' },
+  { href: '/pos', label: 'نقطة البيع', icon: Monitor, permission: 'pos' },
+  { href: '/kitchen', label: 'المطبخ', icon: ChefHat, permission: 'kitchen' },
+  { href: '/menu', label: 'القائمة', icon: UtensilsCrossed, permission: 'menu' },
+  { href: '/analytics', label: 'التحليلات', icon: BarChart3, permission: 'analytics' },
+  { href: '/insights', label: 'رؤى ذكية', icon: Sparkles, permission: 'analytics' },
+  { href: '/inventory', label: 'المخزون', icon: Package, permission: 'inventory' },
+  { href: '/customers', label: 'العملاء', icon: UserCircle, permission: 'customers' },
+  { href: '/tables', label: 'الطاولات', icon: Armchair, permission: 'tables' },
+  { href: '/reservations', label: 'الحجوزات', icon: CalendarClock, permission: 'tables' },
+  { href: '/branches', label: 'الفروع', icon: Building2, permission: 'branches' },
+  { href: '/employees', label: 'الموظفين', icon: Users, permission: 'employees' },
+  { href: '/reports', label: 'التقارير', icon: FileText, permission: 'reports' },
+  { href: '/shift-report', label: 'تقرير نهاية اليوم', icon: ReceiptText, permission: 'reports' },
+  { href: '/notifications', label: 'الإشعارات', icon: Bell, permission: 'notifications' },
+  { href: '/settings', label: 'الإعدادات', icon: Settings, permission: 'settings' },
 ];
 
 interface SidebarProps {
@@ -43,6 +55,11 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuthStore();
+  const userRole = user?.role;
+  const userPermissions = user?.permissions;
+
+  const filteredNavItems = navItems.filter((item) => hasPermission(userRole, item.permission, userPermissions));
 
   return (
     <>
@@ -56,7 +73,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
       {/* Sidebar */}
       <aside className={cn(
-        'fixed top-0 right-0 h-full z-50 transition-all duration-300 flex flex-col',
+        'fixed top-0 right-0 h-full z-50 transition-all duration-300 flex flex-col print:hidden',
         'bg-white dark:bg-dark-card border-l border-gray-200 dark:border-dark-border',
         // Desktop
         'hidden md:flex',
@@ -68,31 +85,34 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         <div className="h-16 flex items-center justify-between border-b border-gray-200 dark:border-dark-border px-4">
           {(!collapsed || mobileOpen) && (
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 dark:text-white">رستق</span>
+              <RustaqIcon size={36} />
+              <span className="text-lg font-bold text-gray-900 dark:text-white" style={{
+                background: 'linear-gradient(135deg, #3cb878 0%, #2d8a5e 50%, #e8c352 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}>رستق</span>
             </div>
           )}
           {collapsed && !mobileOpen && (
-            <div className="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center mx-auto">
-              <TrendingUp className="w-5 h-5 text-white" />
+            <div className="mx-auto">
+              <RustaqIcon size={36} />
             </div>
           )}
           {/* Mobile close button */}
           {mobileOpen && (
             <button
               onClick={onMobileClose}
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors md:hidden"
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              aria-label="إغلاق القائمة"
             >
-              <X className="w-5 h-5 text-gray-500" />
+              <X className="w-5 h-5 text-gray-500" aria-hidden />
             </button>
           )}
         </div>
 
         {/* Nav items */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {filteredNavItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
             const isCollapsedDesktop = collapsed && !mobileOpen;
             return (
@@ -101,8 +121,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                 href={item.href}
                 className={cn('sidebar-link', isActive && 'active', isCollapsedDesktop && 'justify-center px-3')}
                 title={isCollapsedDesktop ? item.label : undefined}
+                aria-label={isCollapsedDesktop ? item.label : undefined}
+                aria-current={isActive ? 'page' : undefined}
               >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
+                <item.icon className="w-5 h-5 flex-shrink-0" aria-hidden />
                 {!isCollapsedDesktop && <span className="text-sm">{item.label}</span>}
               </Link>
             );
@@ -114,8 +136,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           <button
             onClick={onToggle}
             className="sidebar-link w-full justify-center"
+            aria-label={collapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
+            aria-expanded={!collapsed}
           >
-            <ChevronLeft className={cn('w-5 h-5 transition-transform', collapsed && 'rotate-180')} />
+            <ChevronLeft className={cn('w-5 h-5 transition-transform', collapsed && 'rotate-180')} aria-hidden />
           </button>
         </div>
       </aside>

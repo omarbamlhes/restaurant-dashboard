@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { UtensilsCrossed, Plus, Pencil, Trash2, X, Tag, DollarSign, Clock } from 'lucide-react';
+import { UtensilsCrossed, Plus, Pencil, Trash2, X, Tag, DollarSign, Clock, ChefHat, Flame } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import toast from 'react-hot-toast';
@@ -17,6 +17,15 @@ interface Category {
   _count: { menuItems: number };
 }
 
+interface KitchenStation {
+  id: string;
+  name: string;
+  nameAr: string;
+  color: string;
+  sortOrder: number;
+  _count: { menuItems: number };
+}
+
 interface MenuItem {
   id: string;
   name: string;
@@ -28,16 +37,23 @@ interface MenuItem {
   preparationTime: number | null;
   isActive: boolean;
   category: { id: string; nameAr: string };
+  station?: { id: string; nameAr: string; color: string } | null;
 }
 
 const emptyForm = {
   name: '', nameAr: '', description: '', descriptionAr: '',
-  price: '', cost: '', preparationTime: '', categoryId: '',
+  price: '', cost: '', preparationTime: '', categoryId: '', stationId: '',
 };
+
+const STATION_COLORS = [
+  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
+  '#3b82f6', '#8b5cf6', '#ec4899', '#6366f1', '#14b8a6',
+];
 
 export default function MenuPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [stations, setStations] = useState<KitchenStation[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('');
 
@@ -51,18 +67,27 @@ export default function MenuPage() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [catForm, setCatForm] = useState({ name: '', nameAr: '', sortOrder: '' });
 
+  // Station modal
+  const [showStationModal, setShowStationModal] = useState(false);
+  const [editingStationId, setEditingStationId] = useState<string | null>(null);
+  const [stationForm, setStationForm] = useState({ name: '', nameAr: '', color: STATION_COLORS[0] });
+  const [savingStation, setSavingStation] = useState(false);
+
   // Delete confirm
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteStationId, setDeleteStationId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [itemsRes, catsRes] = await Promise.all([
+      const [itemsRes, catsRes, stationsRes] = await Promise.all([
         api.get('/menu', { params: activeCategory ? { categoryId: activeCategory } : {} }),
         api.get('/menu/categories'),
+        api.get('/kitchen-stations'),
       ]);
       setItems(itemsRes.data);
       setCategories(catsRes.data);
+      setStations(stationsRes.data);
     } catch {
       toast.error('فشل تحميل بيانات القائمة');
     } finally {
@@ -91,6 +116,7 @@ export default function MenuPage() {
       cost: item.cost != null ? String(item.cost) : '',
       preparationTime: item.preparationTime != null ? String(item.preparationTime) : '',
       categoryId: item.category.id,
+      stationId: item.station?.id || '',
     });
     setShowModal(true);
   }
@@ -108,6 +134,7 @@ export default function MenuPage() {
       if (form.descriptionAr) payload.descriptionAr = form.descriptionAr;
       if (form.cost) payload.cost = parseFloat(form.cost);
       if (form.preparationTime) payload.preparationTime = parseInt(form.preparationTime);
+      payload.stationId = form.stationId || null;
 
       if (editingId) {
         await api.put(`/menu/${editingId}`, payload);
@@ -150,13 +177,57 @@ export default function MenuPage() {
     }
   }
 
+  // Station CRUD
+  function openCreateStation() {
+    setEditingStationId(null);
+    setStationForm({ name: '', nameAr: '', color: STATION_COLORS[stations.length % STATION_COLORS.length] });
+    setShowStationModal(true);
+  }
+
+  function openEditStation(station: KitchenStation) {
+    setEditingStationId(station.id);
+    setStationForm({ name: station.name, nameAr: station.nameAr, color: station.color });
+    setShowStationModal(true);
+  }
+
+  async function handleSaveStation() {
+    setSavingStation(true);
+    try {
+      if (editingStationId) {
+        await api.put(`/kitchen-stations/${editingStationId}`, stationForm);
+        toast.success('تم تعديل المحطة');
+      } else {
+        await api.post('/kitchen-stations', stationForm);
+        toast.success('تم إضافة المحطة');
+      }
+      setShowStationModal(false);
+      fetchData();
+    } catch {
+      toast.error('فشل حفظ المحطة');
+    } finally {
+      setSavingStation(false);
+    }
+  }
+
+  async function handleDeleteStation() {
+    if (!deleteStationId) return;
+    try {
+      await api.delete(`/kitchen-stations/${deleteStationId}`);
+      setDeleteStationId(null);
+      toast.success('تم حذف المحطة');
+      fetchData();
+    } catch {
+      toast.error('فشل حذف المحطة');
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">القائمة</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة أصناف المطعم والفئات</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة أصناف المطعم والفئات ومحطات المطبخ</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowCategoryModal(true)} className="btn-secondary flex items-center gap-2 text-sm">
@@ -168,6 +239,50 @@ export default function MenuPage() {
             صنف جديد
           </button>
         </div>
+      </div>
+
+      {/* Kitchen Stations Section */}
+      <div className="glass-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <ChefHat className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+            <h2 className="text-sm font-bold text-gray-900 dark:text-white">محطات المطبخ</h2>
+            <span className="text-xs text-gray-400">اربط كل صنف بمحطته عشان الطلب يروح للشاشة الصح</span>
+          </div>
+          <button onClick={openCreateStation} className="text-xs btn-primary flex items-center gap-1.5 py-1.5 px-3">
+            <Plus className="w-3.5 h-3.5" />
+            محطة جديدة
+          </button>
+        </div>
+
+        {stations.length === 0 ? (
+          <div className="text-center py-6">
+            <Flame className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">لا توجد محطات بعد</p>
+            <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">أنشئ محطات مثل: المشاوي، البرجر، المشروبات، الحلويات</p>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {stations.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-card group hover:shadow-sm transition-all"
+              >
+                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                <span className="text-sm font-medium text-gray-900 dark:text-white">{s.nameAr}</span>
+                <span className="text-xs text-gray-400">({s._count.menuItems})</span>
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => openEditStation(s)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-dark-hover">
+                    <Pencil className="w-3 h-3 text-gray-400" />
+                  </button>
+                  <button onClick={() => setDeleteStationId(s.id)} className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/30">
+                    <Trash2 className="w-3 h-3 text-gray-400 hover:text-rose-500" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Category Tabs */}
@@ -222,11 +337,21 @@ export default function MenuPage() {
             const margin = item.cost ? ((Number(item.price) - Number(item.cost)) / Number(item.price)) * 100 : null;
             return (
               <div key={item.id} className="glass-card p-5 animate-fade-in-up hover:shadow-lg transition-all duration-300">
-                {/* Category badge */}
+                {/* Category + Station badges */}
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs px-2 py-1 rounded-lg bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-400 font-medium">
-                    {item.category.nameAr}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs px-2 py-1 rounded-lg bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-400 font-medium">
+                      {item.category.nameAr}
+                    </span>
+                    {item.station && (
+                      <span
+                        className="text-xs px-2 py-1 rounded-lg text-white font-medium"
+                        style={{ backgroundColor: item.station.color }}
+                      >
+                        {item.station.nameAr}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex gap-1">
                     <button onClick={() => openEdit(item)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
                       <Pencil className="w-3.5 h-3.5 text-gray-400 hover:text-primary-600" />
@@ -278,7 +403,7 @@ export default function MenuPage() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
+      {/* Add/Edit Item Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowModal(false)}>
           <div className="glass-card w-full max-w-lg mx-4 p-6 animate-fade-in-up max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -303,12 +428,24 @@ export default function MenuPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">الفئة *</label>
-                <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))} className="input-field text-sm">
-                  <option value="">اختر الفئة</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.nameAr}</option>)}
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">الفئة *</label>
+                  <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))} className="input-field text-sm">
+                    <option value="">اختر الفئة</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.nameAr}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+                    محطة المطبخ
+                    <ChefHat className="w-3.5 h-3.5 inline mr-1 text-gray-400" />
+                  </label>
+                  <select value={form.stationId} onChange={e => setForm(f => ({ ...f, stationId: e.target.value }))} className="input-field text-sm">
+                    <option value="">بدون محطة</option>
+                    {stations.map(s => <option key={s.id} value={s.id}>{s.nameAr}</option>)}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
@@ -342,7 +479,7 @@ export default function MenuPage() {
         </div>
       )}
 
-      {/* Delete Confirm Modal */}
+      {/* Delete Item Confirm */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setDeleteId(null)}>
           <div className="glass-card w-full max-w-sm mx-4 p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
@@ -387,6 +524,74 @@ export default function MenuPage() {
                 </button>
                 <button onClick={() => setShowCategoryModal(false)} className="btn-secondary">إلغاء</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Station Modal */}
+      {showStationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowStationModal(false)}>
+          <div className="glass-card w-full max-w-sm mx-4 p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                {editingStationId ? 'تعديل المحطة' : 'محطة مطبخ جديدة'}
+              </h3>
+              <button onClick={() => setShowStationModal(false)} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-card">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">الاسم بالعربي *</label>
+                <input value={stationForm.nameAr} onChange={e => setStationForm(f => ({ ...f, nameAr: e.target.value }))} className="input-field text-sm" placeholder="المشاوي" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Name (EN) *</label>
+                <input value={stationForm.name} onChange={e => setStationForm(f => ({ ...f, name: e.target.value }))} className="input-field text-sm" placeholder="Grill Station" dir="ltr" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">اللون</label>
+                <div className="flex gap-2 flex-wrap">
+                  {STATION_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setStationForm(f => ({ ...f, color: c }))}
+                      className={cn(
+                        'w-8 h-8 rounded-lg transition-all',
+                        stationForm.color === c ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : 'hover:scale-105',
+                      )}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={handleSaveStation}
+                  disabled={savingStation || !stationForm.name || !stationForm.nameAr}
+                  className="btn-primary flex-1 disabled:opacity-50"
+                >
+                  {savingStation ? 'جاري الحفظ...' : editingStationId ? 'حفظ التعديلات' : 'إضافة المحطة'}
+                </button>
+                <button onClick={() => setShowStationModal(false)} className="btn-secondary">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Station Confirm */}
+      {deleteStationId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setDeleteStationId(null)}>
+          <div className="glass-card w-full max-w-sm mx-4 p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">حذف المحطة</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">سيتم فك ربط جميع الأصناف من هذه المحطة. هل تريد المتابعة؟</p>
+            <div className="flex gap-3">
+              <button onClick={handleDeleteStation} className="flex-1 px-5 py-2.5 rounded-xl font-medium bg-rose-600 hover:bg-rose-700 text-white transition-colors">
+                نعم، احذف
+              </button>
+              <button onClick={() => setDeleteStationId(null)} className="btn-secondary flex-1">إلغاء</button>
             </div>
           </div>
         </div>

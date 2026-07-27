@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle, Printer } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import Receipt from '@/components/shared/Receipt';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
+import { useApi } from '@/hooks/useApi';
 import { cn, formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -54,10 +55,6 @@ interface Order {
 }
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const limit = 15;
 
@@ -72,6 +69,21 @@ export default function OrdersPage() {
   // Receipt
   const [receiptOrder, setReceiptOrder] = useState<any>(null);
 
+  // SWR-cached orders list. The key carries page + filters, so paging and
+  // filtering serve cache instantly and revalidate on window focus.
+  const ordersParams = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (statusFilter) ordersParams.set('status', statusFilter);
+  if (typeFilter) ordersParams.set('type', typeFilter);
+  if (branchFilter) ordersParams.set('branchId', branchFilter);
+  const { data: ordersResp, loading, mutate } = useApi<{ data: Order[]; total: number }>(
+    `/orders?${ordersParams}`,
+    { revalidateOnFocus: true },
+  );
+  const orders = ordersResp?.data ?? [];
+  const total = ordersResp?.total ?? 0;
+
+  const { data: branches = [] } = useApi<Branch[]>('/branches');
+
   async function openReceipt(orderId: string) {
     try {
       const { data } = await api.get(`/orders/${orderId}/receipt`);
@@ -81,35 +93,10 @@ export default function OrdersPage() {
     }
   }
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: any = { page, limit };
-      if (statusFilter) params.status = statusFilter;
-      if (typeFilter) params.type = typeFilter;
-      if (branchFilter) params.branchId = branchFilter;
-      const { data } = await api.get('/orders', { params });
-      setOrders(data.data);
-      setTotal(data.total);
-    } catch {
-      toast.error('فشل تحميل الطلبات');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, statusFilter, typeFilter, branchFilter]);
-
-  useEffect(() => {
-    api.get('/branches').then(res => setBranches(res.data)).catch(() => toast.error('فشل تحميل الفروع'));
-  }, []);
-
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
-
   async function updateStatus(orderId: string, newStatus: string) {
     try {
       await api.put(`/orders/${orderId}/status`, { status: newStatus });
-      fetchOrders();
+      mutate();
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
       }
@@ -182,7 +169,8 @@ export default function OrdersPage() {
         </div>
       ) : (
         <div className="glass-card overflow-hidden animate-fade-in-up">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-dark-border">
@@ -261,6 +249,50 @@ export default function OrdersPage() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden divide-y divide-gray-100 dark:divide-dark-border/50">
+            {orders.map((order) => {
+              const status = statusMap[order.status] || statusMap.PENDING;
+              const idx = statusFlow.indexOf(order.status);
+              const canAdvance = order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && idx < statusFlow.length - 1;
+              return (
+                <div key={order.id} className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">#{order.orderNumber.slice(-6)}</span>
+                    <span className={cn('text-xs px-2.5 py-1 rounded-lg font-medium', status.class)}>{status.label}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="text-gray-500 dark:text-gray-400">
+                      <span>{typeMap[order.type] || order.type}</span>
+                      {order.branch?.nameAr && <span> · {order.branch.nameAr}</span>}
+                    </div>
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">{formatSAR(order.total)} <SARSymbol /></span>
+                  </div>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-xs text-gray-400">
+                      {new Date(order.createdAt).toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' })}
+                      {' '}
+                      {new Date(order.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setSelectedOrder(order)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-card transition-colors" aria-label="عرض التفاصيل">
+                        <Eye className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                      </button>
+                      <button onClick={() => openReceipt(order.id)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-card transition-colors" aria-label="طباعة الفاتورة">
+                        <Printer className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                      </button>
+                      {canAdvance && (
+                        <button onClick={() => updateStatus(order.id, statusFlow[idx + 1])} className="p-2 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors" aria-label="تقديم الحالة">
+                          <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Pagination */}

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
   CalendarClock, Plus, X, Clock, Users, MapPin, Phone, User,
   CheckCircle2, XCircle, Armchair, Eye, ChevronRight, ChevronLeft,
-  Building2, CalendarDays, Filter, Link2, Copy,
+  Building2, CalendarDays, Filter, Link2, Copy, QrCode,
 } from 'lucide-react';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
@@ -97,7 +97,28 @@ export default function ReservationsPage() {
   const [loadingTables, setLoadingTables] = useState(false);
 
   const [selectedRes, setSelectedRes] = useState<Reservation | null>(null);
+  const [lookupCode, setLookupCode] = useState('');
+  const [lookingUp, setLookingUp] = useState(false);
   const { restaurant } = useAuthStore();
+
+  async function handleLookup(code: string) {
+    const value = code.trim();
+    if (!value) return;
+    setLookingUp(true);
+    try {
+      const { data } = await api.get(`/reservations/lookup?code=${encodeURIComponent(value)}`);
+      setSelectedRes(data);
+      setLookupCode('');
+      // Jump to the reservation's date so it shows in the timeline
+      const resDate = String(data.date).slice(0, 10);
+      if (resDate !== filterDate) setFilterDate(resDate);
+      toast.success(`تم العثور على حجز ${data.customerName}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'لم يتم العثور على حجز بهذا الرمز');
+    } finally {
+      setLookingUp(false);
+    }
+  }
 
   async function fetchData() {
     setLoading(true);
@@ -242,6 +263,19 @@ export default function ReservationsPage() {
           <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة حجوزات الطاولات</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Lookup by reservation code — works with typing or a hardware QR scanner (Enter) */}
+          <div className="relative">
+            <QrCode className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              value={lookupCode}
+              onChange={e => setLookupCode(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleLookup(lookupCode); }}
+              disabled={lookingUp}
+              placeholder="رمز الحجز..."
+              className="input-field text-sm py-2 pr-9 pl-3 w-40 uppercase"
+              dir="ltr"
+            />
+          </div>
           <button
             onClick={() => {
               const link = `${window.location.origin}/book/${restaurant?.id}`;

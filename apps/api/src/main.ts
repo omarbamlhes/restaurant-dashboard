@@ -2,6 +2,7 @@ import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import helmet from 'helmet';
+import compression from 'compression';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -9,6 +10,8 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   app.use(helmet());
+  app.use(compression()); // gzip JSON responses (analytics/lists shrink a lot)
+  app.enableShutdownHooks(); // run onModuleDestroy (e.g. close Redis) on exit
   app.setGlobalPrefix('api');
 
   const origins = (process.env.FRONTEND_URL || 'http://localhost:3000')

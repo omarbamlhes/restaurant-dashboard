@@ -2,7 +2,11 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantHelper } from './restaurant.helper';
-import { REQUIRES_FEATURE_KEY, CHECK_ORDER_LIMIT_KEY } from './subscription.decorator';
+import {
+  REQUIRES_FEATURE_KEY,
+  CHECK_ORDER_LIMIT_KEY,
+  SKIP_SUBSCRIPTION_KEY,
+} from './subscription.decorator';
 import { PLAN_LIMITS } from '../subscriptions/plan-limits.constant';
 
 @Injectable()
@@ -14,6 +18,12 @@ export class SubscriptionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const skip = this.reflector.getAllAndOverride<boolean>(SKIP_SUBSCRIPTION_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (skip) return true;
+
     const request = context.switchToHttp().getRequest();
     const user = request.user;
     if (!user) return true;

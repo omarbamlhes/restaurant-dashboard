@@ -51,6 +51,14 @@ export class ReservationsController {
     return this.reservationsService.getAvailableTables(rid, branchId, date, time, parseInt(partySize) || 2);
   }
 
+  @Get('lookup')
+  @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.STAFF)
+  @Permission('tables', 'pos')
+  async lookup(@Request() req, @Query('code') code: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.reservationsService.lookup(rid, code);
+  }
+
   @Post()
   @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.STAFF)
   @Permission('tables', 'pos')

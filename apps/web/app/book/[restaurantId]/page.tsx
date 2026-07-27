@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   CalendarClock, Users, Clock, MapPin, Phone, User,
-  Armchair, CheckCircle2, ChevronLeft, ChevronRight, Utensils,
+  Armchair, CheckCircle2, ChevronLeft, ChevronRight, Utensils, Download,
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { cn } from '@/lib/utils';
 
 interface Restaurant {
@@ -89,6 +90,48 @@ export default function PublicBookingPage() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [result, setResult] = useState<BookingResult | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const ticketRef = useRef<HTMLDivElement>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  async function downloadTicket() {
+    if (!ticketRef.current || !result) return;
+    setDownloading(true);
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(ticketRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
+
+      // html2canvas leaves the live QR <canvas> blank, so composite it manually
+      // at its measured position over the rendered ticket.
+      const qr = qrCanvasRef.current;
+      if (qr) {
+        const tRect = ticketRef.current.getBoundingClientRect();
+        const qRect = qr.getBoundingClientRect();
+        const scale = canvas.width / tRect.width;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(
+          qr,
+          (qRect.left - tRect.left) * scale,
+          (qRect.top - tRect.top) * scale,
+          qRect.width * scale,
+          qRect.height * scale,
+        );
+      }
+
+      const link = document.createElement('a');
+      link.download = `reservation-${result.id.slice(-6).toUpperCase()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch {
+      // ignore — button stays available to retry
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   // Load restaurant info
   useEffect(() => {
@@ -506,30 +549,57 @@ export default function PublicBookingPage() {
               <p className="text-sm text-gray-400 mt-1">سيتم تأكيد حجزك قريباً</p>
             </div>
 
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 text-right max-w-xs mx-auto">
-              <div className="space-y-3">
+            {/* Downloadable reservation ticket — show this to the restaurant on arrival */}
+            <div ref={ticketRef} className="bg-white rounded-2xl border border-gray-200 p-5 max-w-xs mx-auto" dir="rtl">
+              <p className="text-sm font-bold text-gray-900 text-center mb-3">{restaurant?.nameAr}</p>
+
+              <div className="bg-white p-3 rounded-xl inline-block mx-auto">
+                <QRCodeCanvas
+                  ref={qrCanvasRef}
+                  value={JSON.stringify({ t: 'reservation', id: result.id })}
+                  size={168}
+                  level="M"
+                  marginSize={0}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-3 text-center">رقم الحجز</p>
+              <p className="text-lg font-bold tracking-widest text-gray-900 text-center" dir="ltr">
+                {result.id.slice(-6).toUpperCase()}
+              </p>
+              <p className="text-[11px] text-gray-400 mt-2 text-center">أظهِر هذا الرمز عند وصولك للمطعم</p>
+
+              <div className="space-y-3 text-right mt-4 pt-4 border-t border-gray-100">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">{result.branch.nameAr}</span>
+                  <span className="text-sm font-bold text-gray-900">{result.branch.nameAr}</span>
                   <span className="text-xs text-gray-400">الفرع</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">طاولة {result.table.number}</span>
+                  <span className="text-sm font-bold text-gray-900">طاولة {result.table.number}</span>
                   <span className="text-xs text-gray-400">الطاولة</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">{formatDate(result.date)}</span>
+                  <span className="text-sm font-bold text-gray-900">{formatDate(result.date)}</span>
                   <span className="text-xs text-gray-400">التاريخ</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">{formatTime12(result.time)} - {formatTime12(result.endTime)}</span>
+                  <span className="text-sm font-bold text-gray-900">{formatTime12(result.time)} - {formatTime12(result.endTime)}</span>
                   <span className="text-xs text-gray-400">الوقت</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900 dark:text-white">{partySize} أشخاص</span>
+                  <span className="text-sm font-bold text-gray-900">{partySize} أشخاص</span>
                   <span className="text-xs text-gray-400">العدد</span>
                 </div>
               </div>
             </div>
+
+            <button
+              onClick={downloadTicket}
+              disabled={downloading}
+              className="w-full max-w-xs mx-auto py-3.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-bold text-sm transition-all disabled:opacity-50 shadow-lg shadow-primary-500/30 flex items-center justify-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              {downloading ? 'جاري التحميل...' : 'تحميل الحجز'}
+            </button>
 
             <p className="text-xs text-gray-400">
               للاستفسار تواصل معنا: {restaurant?.phone}

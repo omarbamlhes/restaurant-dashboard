@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
 import { OrdersGateway } from './orders.gateway';
+import { CacheService } from '../cache/cache.service';
 import { buildZatcaQR } from '../common/zatca';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private ordersGateway: OrdersGateway,
+    private cache: CacheService,
   ) {}
 
   private async getBranchIds(restaurantId: string) {
@@ -144,6 +146,7 @@ export class OrdersService {
     }
 
     this.ordersGateway.emitNewOrder(restaurantId, order);
+    this.cache.invalidate(`analytics:${restaurantId}:*`);
 
     return order;
   }
@@ -199,6 +202,8 @@ export class OrdersService {
     }
 
     this.ordersGateway.emitOrderStatusChanged(restaurantId, order);
+    // A cancelled/uncancelled order changes revenue, so drop cached analytics.
+    this.cache.invalidate(`analytics:${restaurantId}:*`);
 
     return order;
   }

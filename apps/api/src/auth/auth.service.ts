@@ -1,9 +1,10 @@
 import { Injectable, UnauthorizedException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { isValidSaudiTaxNumber } from '../common/zatca';
 import { JwtService } from '@nestjs/jwt';
-import { UserRole } from '@prisma/client';
+import { UserRole, PlanType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { PLAN_LIMITS } from '../subscriptions/plan-limits.constant';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
@@ -21,6 +22,12 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
+    // Every new restaurant starts on a PRO trial so the subscription guard
+    // has something to check — without this, signups are locked out instantly.
+    const trialPlan: PlanType = 'PRO';
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + PLAN_LIMITS[trialPlan].trialDays);
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -33,6 +40,15 @@ export class AuthService {
             nameAr: dto.restaurantNameAr,
             branches: {
               create: { name: 'Main Branch', nameAr: 'الفرع الرئيسي', isMain: true },
+            },
+            subscription: {
+              create: {
+                plan: trialPlan,
+                status: 'TRIALING',
+                trialEndsAt,
+                currentPeriodStart: new Date(),
+                currentPeriodEnd: trialEndsAt,
+              },
             },
           },
         },

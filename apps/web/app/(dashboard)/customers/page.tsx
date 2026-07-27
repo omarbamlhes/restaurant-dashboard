@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { UserCircle, Plus, Pencil, Trash2, X, Search, Phone, Mail, ShoppingBag, Crown, Clock, Users } from 'lucide-react';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
@@ -63,7 +63,11 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -72,23 +76,48 @@ export default function CustomersPage() {
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
-  async function fetchData() {
-    setLoading(true);
+  const PAGE_SIZE = 50;
+
+  // Fetch a page of customers. reset=true replaces the list (new search / first
+  // load); otherwise the page is appended for "load more". The list stays sorted
+  // by total spend across pages, so the top customers panel stays correct.
+  const fetchCustomers = useCallback(async (targetPage: number, searchTerm: string, reset: boolean) => {
+    if (reset) setLoading(true); else setLoadingMore(true);
     try {
-      const [custRes, statsRes] = await Promise.all([
-        api.get('/customers'),
-        api.get('/customers/stats'),
-      ]);
-      setCustomers(custRes.data);
-      setStats(statsRes.data);
+      const params = new URLSearchParams({ page: String(targetPage), limit: String(PAGE_SIZE) });
+      if (searchTerm) params.set('search', searchTerm);
+      const { data } = await api.get(`/customers?${params}`);
+      setCustomers(prev => (reset ? data.data : [...prev, ...data.data]));
+      setPage(data.page);
+      setTotalPages(data.totalPages);
+      setTotal(data.total);
     } catch {
       toast.error('فشل تحميل بيانات العملاء');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
+  }, []);
+
+  async function fetchStats() {
+    try {
+      const { data } = await api.get('/customers/stats');
+      setStats(data);
+    } catch { /* stats are non-critical */ }
   }
 
-  useEffect(() => { fetchData(); }, []);
+  function refresh() {
+    fetchCustomers(1, search, true);
+    fetchStats();
+  }
+
+  // Debounce search → refetch page 1 from the server.
+  useEffect(() => {
+    const t = setTimeout(() => fetchCustomers(1, search, true), 300);
+    return () => clearTimeout(t);
+  }, [search, fetchCustomers]);
+
+  useEffect(() => { fetchStats(); }, []);
 
   function openCreate() {
     setEditingId(null);
@@ -118,7 +147,7 @@ export default function CustomersPage() {
         toast.success('تم إضافة العميل');
       }
       setShowModal(false);
-      fetchData();
+      refresh();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'فشل حفظ بيانات العميل');
     } finally {
@@ -132,17 +161,11 @@ export default function CustomersPage() {
       await api.delete(`/customers/${id}`);
       toast.success('تم حذف العميل');
       if (selectedCustomer?.id === id) setSelectedCustomer(null);
-      fetchData();
+      refresh();
     } catch {
       toast.error('فشل حذف العميل');
     }
   }
-
-  const filtered = search
-    ? customers.filter(c =>
-        c.name.includes(search) || c.phone.includes(search) || c.email?.includes(search)
-      )
-    : customers;
 
   // Top customers by spending
   const topCustomers = [...customers].sort((a, b) => Number(b.totalSpent) - Number(a.totalSpent)).slice(0, 3);
@@ -227,13 +250,13 @@ export default function CustomersPage() {
             />
           </div>
 
-          {filtered.length === 0 ? (
+          {customers.length === 0 ? (
             <div className="glass-card p-6">
               <EmptyState
                 icon={UserCircle}
                 title="لا يوجد عملاء"
-                description={customers.length === 0 ? 'أضف عميلك الأول' : 'لا توجد نتائج للبحث'}
-                action={customers.length === 0 ? (
+                description={search ? 'لا توجد نتائج للبحث' : 'أضف عميلك الأول'}
+                action={!search ? (
                   <button onClick={openCreate} className="btn-primary text-sm flex items-center gap-2">
                     <Plus className="w-4 h-4" />
                     إضافة عميل
@@ -243,7 +266,7 @@ export default function CustomersPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {filtered.map(customer => (
+              {customers.map(customer => (
                 <div
                   key={customer.id}
                   onClick={() => setSelectedCustomer(customer)}
@@ -290,6 +313,16 @@ export default function CustomersPage() {
                   </div>
                 </div>
               ))}
+
+              {page < totalPages && (
+                <button
+                  onClick={() => fetchCustomers(page + 1, search, false)}
+                  disabled={loadingMore}
+                  className="w-full py-3 rounded-xl bg-gray-100 dark:bg-dark-hover hover:bg-gray-200 dark:hover:bg-dark-card text-sm text-gray-600 dark:text-gray-300 transition-colors disabled:opacity-50"
+                >
+                  {loadingMore ? 'جاري التحميل...' : `عرض المزيد (${formatNumber(customers.length)} من ${formatNumber(total)})`}
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { DollarSign, ShoppingBag, TrendingUp, Receipt, CalendarDays, CalendarRange, UtensilsCrossed, ShoppingCart, Truck } from 'lucide-react';
 import StatsCard from '@/components/dashboard/StatsCard';
 import SalesChart from '@/components/charts/SalesChart';
@@ -8,8 +8,7 @@ import RecentOrders from '@/components/dashboard/RecentOrders';
 import TopItems from '@/components/dashboard/TopItems';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import BranchFilter from '@/components/dashboard/BranchFilter';
-import toast from 'react-hot-toast';
-import api from '@/lib/api';
+import { useApi } from '@/hooks/useApi';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -37,18 +36,13 @@ interface OverviewData {
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [branchId, setBranchId] = useState('all');
 
-  useEffect(() => {
-    setLoading(true);
-    const params = branchId !== 'all' ? { branchId } : {};
-    api.get('/analytics/overview', { params })
-      .then((res) => setData(res.data))
-      .catch(() => toast.error('فشل تحميل بيانات لوحة التحكم'))
-      .finally(() => setLoading(false));
-  }, [branchId]);
+  // SWR caches per branch, dedupes, and revalidates in the background — so
+  // switching branches back and forth is instant instead of refetching.
+  const { data, loading } = useApi<OverviewData>(
+    `/analytics/overview${branchId !== 'all' ? `?branchId=${branchId}` : ''}`,
+  );
 
   // Only show the full skeleton on first load; on branch switches keep the
   // current view (and the filter) visible while fresh data loads.

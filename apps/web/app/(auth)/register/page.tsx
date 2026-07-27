@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import toast from 'react-hot-toast';
 
@@ -15,6 +16,7 @@ export default function RegisterPage() {
     restaurantName: '',
     restaurantNameAr: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { register } = useAuthStore();
   const router = useRouter();
@@ -47,28 +49,48 @@ export default function RegisterPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">الاسم</label>
-            <input value={form.name} onChange={update('name')} className="input-field" placeholder="محمد أحمد" required />
+            <input value={form.name} onChange={update('name')} className="input-field" placeholder="محمد أحمد" autoComplete="name" required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">الجوال</label>
-            <input value={form.phone} onChange={update('phone')} className="input-field" dir="ltr" placeholder="05xxxxxxxx" />
+            <input type="tel" value={form.phone} onChange={update('phone')} className="input-field" dir="ltr" placeholder="05xxxxxxxx" autoComplete="tel" />
           </div>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">البريد الإلكتروني</label>
-          <input type="email" value={form.email} onChange={update('email')} className="input-field" dir="ltr" placeholder="example@restaurant.com" required />
+          <input type="email" value={form.email} onChange={update('email')} className="input-field" dir="ltr" placeholder="example@restaurant.com" autoComplete="email" required />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">كلمة المرور</label>
-          <input type="password" value={form.password} onChange={update('password')} className="input-field" dir="ltr" placeholder="٦ أحرف على الأقل" required minLength={6} />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={form.password}
+              onChange={update('password')}
+              className="input-field pl-10"
+              dir="ltr"
+              placeholder="٦ أحرف على الأقل"
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">اسم المطعم (English)</label>
-            <input value={form.restaurantName} onChange={update('restaurantName')} className="input-field" dir="ltr" placeholder="Al Baik" required />
+            <input value={form.restaurantName} onChange={update('restaurantName')} className="input-field" dir="ltr" placeholder="Al Baik" autoComplete="organization" required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">اسم المطعم (عربي)</label>

@@ -4,6 +4,7 @@ import { AnalyticsService } from './analytics.service';
 import { Roles } from '../common/roles.decorator';
 import { Permission } from '../common/permission.decorator';
 import { RestaurantHelper } from '../common/restaurant.helper';
+import { RequiresFeature } from '../common/subscription.decorator';
 
 @Controller('analytics')
 @Roles(UserRole.OWNER)
@@ -27,20 +28,30 @@ export class AnalyticsController {
   }
 
   @Get('profit')
+  @RequiresFeature('reports_advanced')
   async getProfitMargins(@Request() req, @Query('branchId') branchId?: string) {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.analyticsService.getProfitMargins(rid, branchId);
   }
 
   @Get('peak-hours')
+  @RequiresFeature('reports_advanced')
   async getPeakHours(@Request() req, @Query('branchId') branchId?: string) {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.analyticsService.getPeakHours(rid, branchId);
   }
 
   @Get('branches-comparison')
+  @RequiresFeature('reports_advanced')
   async getBranchComparison(@Request() req) {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.analyticsService.getBranchComparison(rid);
+  }
+
+  @Get('insights')
+  @RequiresFeature('reports_advanced')
+  async getInsights(@Request() req, @Query('branchId') branchId?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getInsights(rid, branchId);
   }
 }

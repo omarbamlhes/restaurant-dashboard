@@ -5,7 +5,9 @@ import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-employee.dto'
 import { Roles } from '../common/roles.decorator';
 import { Permission } from '../common/permission.decorator';
 import { RestaurantHelper } from '../common/restaurant.helper';
+import { RequiresFeature } from '../common/subscription.decorator';
 
+@RequiresFeature('employees')
 @Controller('employees')
 @Permission('employees')
 export class EmployeesController {

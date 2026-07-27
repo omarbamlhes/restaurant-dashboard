@@ -149,7 +149,7 @@ export default function Topbar({ sidebarCollapsed, onMenuToggle }: TopbarProps) 
 
   return (
     <header
-      className={`fixed top-0 left-0 z-30 h-16 flex items-center justify-between px-4 md:px-6 bg-white/80 dark:bg-dark-bg/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-border transition-all duration-300 right-0 ${sidebarCollapsed ? 'md:right-20' : 'md:right-64'}`}
+      className={`fixed top-0 left-0 z-30 h-16 flex items-center justify-between px-4 md:px-6 bg-white/80 dark:bg-dark-bg/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-border transition-all duration-300 right-0 print:hidden ${sidebarCollapsed ? 'md:right-20' : 'md:right-64'}`}
     >
       {/* Mobile menu button */}
       {onMenuToggle && (

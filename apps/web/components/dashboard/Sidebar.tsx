@@ -23,6 +23,7 @@ import {
   UserCircle,
   X,
   CalendarClock,
+  ReceiptText,
 } from 'lucide-react';
 
 const navItems: { href: string; label: string; icon: any; permission: Permission }[] = [
@@ -38,6 +39,7 @@ const navItems: { href: string; label: string; icon: any; permission: Permission
   { href: '/branches', label: 'الفروع', icon: Building2, permission: 'branches' },
   { href: '/employees', label: 'الموظفين', icon: Users, permission: 'employees' },
   { href: '/reports', label: 'التقارير', icon: FileText, permission: 'reports' },
+  { href: '/shift-report', label: 'تقرير نهاية اليوم', icon: ReceiptText, permission: 'reports' },
   { href: '/notifications', label: 'الإشعارات', icon: Bell, permission: 'notifications' },
   { href: '/settings', label: 'الإعدادات', icon: Settings, permission: 'settings' },
 ];
@@ -69,7 +71,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
       {/* Sidebar */}
       <aside className={cn(
-        'fixed top-0 right-0 h-full z-50 transition-all duration-300 flex flex-col',
+        'fixed top-0 right-0 h-full z-50 transition-all duration-300 flex flex-col print:hidden',
         'bg-white dark:bg-dark-card border-l border-gray-200 dark:border-dark-border',
         // Desktop
         'hidden md:flex',

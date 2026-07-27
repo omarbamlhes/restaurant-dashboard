@@ -57,6 +57,9 @@ jobs:
       - name: Run database migrations
         run: pnpm --filter @app/api exec prisma migrate deploy
 
+      - name: Run API tests
+        run: pnpm --filter @app/api run test
+
       - name: Build API
         run: pnpm --filter @app/api run build
 

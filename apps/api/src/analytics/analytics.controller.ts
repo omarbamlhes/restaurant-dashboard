@@ -47,4 +47,11 @@ export class AnalyticsController {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.analyticsService.getBranchComparison(rid);
   }
+
+  @Get('insights')
+  @RequiresFeature('reports_advanced')
+  async getInsights(@Request() req, @Query('branchId') branchId?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.analyticsService.getInsights(rid, branchId);
+  }
 }

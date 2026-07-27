@@ -24,6 +24,7 @@ import {
   X,
   CalendarClock,
   ReceiptText,
+  Sparkles,
 } from 'lucide-react';
 
 const navItems: { href: string; label: string; icon: any; permission: Permission }[] = [
@@ -32,6 +33,7 @@ const navItems: { href: string; label: string; icon: any; permission: Permission
   { href: '/kitchen', label: 'المطبخ', icon: ChefHat, permission: 'kitchen' },
   { href: '/menu', label: 'القائمة', icon: UtensilsCrossed, permission: 'menu' },
   { href: '/analytics', label: 'التحليلات', icon: BarChart3, permission: 'analytics' },
+  { href: '/insights', label: 'رؤى ذكية', icon: Sparkles, permission: 'analytics' },
   { href: '/inventory', label: 'المخزون', icon: Package, permission: 'inventory' },
   { href: '/customers', label: 'العملاء', icon: UserCircle, permission: 'customers' },
   { href: '/tables', label: 'الطاولات', icon: Armchair, permission: 'tables' },

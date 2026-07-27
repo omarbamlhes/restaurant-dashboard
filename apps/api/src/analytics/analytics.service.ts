@@ -54,6 +54,14 @@ export class AnalyticsService {
     );
   }
 
+  getInsights(restaurantId: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:insights:${branchId || 'all'}`,
+      ANALYTICS_TTL,
+      () => this._getInsights(restaurantId, branchId),
+    );
+  }
+
   private async getBranchIds(restaurantId: string) {
     const branches = await this.prisma.branch.findMany({ where: { restaurantId }, select: { id: true } });
     return branches.map((b) => b.id);
@@ -355,5 +363,132 @@ export class AnalyticsService {
       orders: val.orders,
       revenue: Math.round(val.revenue),
     }));
+  }
+
+  // Derives natural-language, prioritized business insights from the existing
+  // analytics — a deterministic engine (no external API) so it always works.
+  private async _getInsights(restaurantId: string, branchId?: string) {
+    const [overview, margins, peak, lowStock] = await Promise.all([
+      this._getOverview(restaurantId, branchId),
+      this._getProfitMargins(restaurantId, branchId),
+      this._getPeakHours(restaurantId, branchId),
+      this.prisma.ingredient.findMany({
+        where: { restaurantId, minStock: { gt: 0 } },
+        select: { nameAr: true, currentStock: true, minStock: true },
+      }),
+    ]);
+
+    type Insight = {
+      kind: 'positive' | 'warning' | 'info' | 'tip';
+      title: string;
+      message: string;
+      priority: number; // higher = more important
+    };
+    const insights: Insight[] = [];
+
+    // Revenue trend (today vs yesterday)
+    if (overview.revenueChange > 5) {
+      insights.push({
+        kind: 'positive', priority: 90,
+        title: 'مبيعات اليوم في ارتفاع',
+        message: `إيرادات اليوم أعلى بنسبة ${overview.revenueChange}% مقارنة بالأمس. استمر على نفس الأداء!`,
+      });
+    } else if (overview.revenueChange < -5) {
+      insights.push({
+        kind: 'warning', priority: 95,
+        title: 'انخفاض في مبيعات اليوم',
+        message: `إيرادات اليوم أقل بنسبة ${Math.abs(overview.revenueChange)}% عن الأمس. راجع العروض أو ساعات الذروة.`,
+      });
+    }
+
+    // Monthly trend
+    if (overview.monthRevenueChange > 10) {
+      insights.push({
+        kind: 'positive', priority: 70,
+        title: 'نمو شهري قوي',
+        message: `مبيعات هذا الشهر أعلى بـ ${overview.monthRevenueChange}% عن الشهر الماضي.`,
+      });
+    }
+
+    // Best seller today
+    if (overview.topItems?.length) {
+      const top = overview.topItems[0];
+      insights.push({
+        kind: 'info', priority: 60,
+        title: 'الصنف الأكثر مبيعاً اليوم',
+        message: `«${top.nameAr}» تصدّر المبيعات بـ ${top.quantity} طلب. فكّر في إبرازه أو عمل عرض عليه.`,
+      });
+    }
+
+    // Peak hour
+    const busiest = [...peak].sort((a, b) => b.orders - a.orders)[0];
+    if (busiest && busiest.orders > 0) {
+      const h = busiest.hour;
+      const label = `${h % 12 || 12}${h >= 12 ? ' م' : ' ص'}`;
+      insights.push({
+        kind: 'tip', priority: 55,
+        title: 'ساعة الذروة',
+        message: `أكثر الأوقات ازدحاماً حوالي الساعة ${label}. تأكّد من جاهزية الطاقم والمخزون قبلها.`,
+      });
+    }
+
+    // Low-margin item
+    const sold = margins.filter((m) => m.totalSold > 0);
+    const worst = sold.sort((a, b) => a.margin - b.margin)[0];
+    if (worst && worst.margin < 30) {
+      insights.push({
+        kind: 'warning', priority: 80,
+        title: 'هامش ربح منخفض',
+        message: `«${worst.nameAr}» هامش ربحه ${worst.margin}% فقط. راجع سعره أو تكلفته.`,
+      });
+    }
+
+    // High-margin star
+    const best = sold.sort((a, b) => (b.margin * b.totalSold) - (a.margin * a.totalSold))[0];
+    if (best && best.margin >= 50) {
+      insights.push({
+        kind: 'positive', priority: 50,
+        title: 'نجم الأرباح',
+        message: `«${best.nameAr}» يجمع بين هامش ربح ${best.margin}% ومبيعات جيدة — ركّز على الترويج له.`,
+      });
+    }
+
+    // Low stock
+    const low = lowStock.filter((i) => Number(i.currentStock) <= Number(i.minStock));
+    if (low.length > 0) {
+      insights.push({
+        kind: 'warning', priority: 85,
+        title: 'مخزون منخفض',
+        message: `${low.length} مكوّن وصل للحد الأدنى${low.length <= 3 ? `: ${low.map((i) => i.nameAr).join('، ')}` : ''}. أعد الطلب لتجنّب النفاد.`,
+      });
+    }
+
+    // Order type mix
+    const t = overview.ordersByType;
+    const totalTyped = t.DINE_IN + t.TAKEAWAY + t.DELIVERY;
+    if (totalTyped >= 5) {
+      const deliveryPct = Math.round((t.DELIVERY / totalTyped) * 100);
+      if (deliveryPct >= 40) {
+        insights.push({
+          kind: 'info', priority: 40,
+          title: 'التوصيل يقود الطلبات',
+          message: `${deliveryPct}% من طلبات اليوم توصيل. تأكّد من كفاءة التوصيل وتغليف الطلبات.`,
+        });
+      }
+    }
+
+    // Fallback when there's little data
+    if (insights.length === 0) {
+      insights.push({
+        kind: 'tip', priority: 10,
+        title: 'ابدأ بجمع البيانات',
+        message: 'سجّل المزيد من الطلبات وستظهر لك رؤى ذكية عن أداء مطعمك تلقائياً.',
+      });
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      insights: insights.sort((a, b) => b.priority - a.priority).map(({ priority, ...rest }) => rest),
+    };
   }
 }

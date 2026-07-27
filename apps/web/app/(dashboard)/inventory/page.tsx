@@ -219,7 +219,8 @@ export default function InventoryPage() {
         </div>
       ) : (
         <div className="glass-card overflow-hidden animate-fade-in-up">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-dark-border">
@@ -281,6 +282,46 @@ export default function InventoryPage() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden divide-y divide-gray-100 dark:divide-dark-border/50">
+            {ingredients.map((ing) => {
+              const isLow = Number(ing.currentStock) <= Number(ing.minStock) && Number(ing.minStock) > 0;
+              return (
+                <div key={ing.id} className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{ing.nameAr}</p>
+                      <p className="text-xs text-gray-400">{ing.name}</p>
+                    </div>
+                    {isLow ? (
+                      <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                        <AlertTriangle className="w-3 h-3" /> منخفض
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">متوفر</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    <span>المخزون: <span className={cn('font-medium', isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100')}>{formatNumber(Number(ing.currentStock))}</span> {ing.unit}</span>
+                    <span>الحد الأدنى: {formatNumber(Number(ing.minStock))}</span>
+                    <span>{formatSAR(Number(ing.costPerUnit))} <SARSymbol />/وحدة</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => openLogModal(ing.id)} className="p-2 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors" aria-label="تسجيل حركة">
+                      <ArrowDownCircle className="w-4 h-4 text-emerald-500" />
+                    </button>
+                    <button onClick={() => openLogs(ing)} className="p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" aria-label="سجل الحركات">
+                      <History className="w-4 h-4 text-blue-500" />
+                    </button>
+                    <button onClick={() => openEdit(ing)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors" aria-label="تعديل">
+                      <Pencil className="w-4 h-4 text-gray-400 hover:text-primary-600" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

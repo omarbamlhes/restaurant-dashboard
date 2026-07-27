@@ -211,7 +211,8 @@ export default function EmployeesPage() {
         </div>
       ) : (
         <div className="glass-card overflow-hidden animate-fade-in-up">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-dark-border">
@@ -278,6 +279,47 @@ export default function EmployeesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden divide-y divide-gray-100 dark:divide-dark-border/50">
+            {employees.map((emp) => (
+              <div key={emp.id} className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center">
+                      <span className="text-sm font-bold text-primary-600 dark:text-primary-400">{emp.nameAr.charAt(0)}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{emp.nameAr}</p>
+                      <p className="text-xs text-gray-400">{emp.branch.nameAr}</p>
+                    </div>
+                  </div>
+                  <span className={cn('text-xs px-2 py-1 rounded-lg', emp.isActive ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400')}>
+                    {emp.isActive ? 'نشط' : 'معطّل'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="px-2 py-0.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{emp.role}</span>
+                    {emp.phone && <span dir="ltr">{emp.phone}</span>}
+                    {emp.salary && <span>{formatSAR(Number(emp.salary))} <SARSymbol /></span>}
+                  </div>
+                  {isOwner && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(emp)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors" aria-label="تعديل">
+                        <Pencil className="w-4 h-4 text-gray-400 hover:text-primary-600" />
+                      </button>
+                      {emp.isActive && (
+                        <button onClick={() => handleDelete(emp.id)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" aria-label="حذف">
+                          <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-600" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

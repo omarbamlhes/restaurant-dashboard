@@ -322,9 +322,14 @@
   }
 
   /* Only isolate when a print-target wrapper is present on the page.
-     Pages that call window.print() without these IDs print normally. */
-  body:has(#receipt-content) *,
-  body:has(#shift-report-content) * {
+     Pages that call window.print() without these IDs print normally.
+     NOTE: the direct-child combinator (`> *`) is REQUIRED. Chrome's print
+     path blanks the whole page when `:has()` is combined with the universal
+     descendant selector (`body:has(#x) *`); hiding only body's direct children
+     works because `visibility: visible` below still reveals the target subtree
+     through its hidden ancestors. Verified via headless print-to-pdf. */
+  body:has(#receipt-content) > *,
+  body:has(#shift-report-content) > * {
     visibility: hidden;
   }
   #receipt-content,

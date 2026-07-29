@@ -27,6 +27,7 @@ import {
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
+import { PAYMENT_METHODS, PAYMENT_METHOD_ORDER, type PaymentMethodKey } from '@/lib/payment-methods';
 import Receipt from '@/components/shared/Receipt';
 import { useAuthStore } from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
@@ -75,18 +76,12 @@ interface TableData {
 }
 
 type OrderType = 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
-type PaymentMethod = 'CASH' | 'CARD' | 'SPLIT';
+type PaymentMethod = PaymentMethodKey;
 
 const orderTypeLabels: Record<OrderType, string> = {
   DINE_IN: 'محلي',
   TAKEAWAY: 'سفري',
   DELIVERY: 'توصيل',
-};
-
-const paymentMethodLabels: Record<string, string> = {
-  CASH: 'نقدي',
-  CARD: 'بطاقة',
-  SPLIT: 'مقسم',
 };
 
 // --- Clock Component ---
@@ -394,15 +389,17 @@ export default function POSPage() {
     setShowPayment(true);
   }
 
+  const paymentCategory = PAYMENT_METHODS[paymentMethod].category;
   const cashPaid = parseFloat(cashInput) || 0;
   const changeAmount = paymentMethod === 'CASH' ? Math.max(0, Math.round((cashPaid - total) * 100) / 100) : 0;
   const canPayCash = paymentMethod === 'CASH' && cashPaid >= total;
-  const canPayCard = paymentMethod === 'CARD';
+  // Card, Mada, STC Pay, Apple Pay, Tabby, Tamara — all settle in full, no input.
+  const canPayCashless = paymentCategory === 'cashless';
   const splitCashVal = parseFloat(splitCash) || 0;
   const splitCardVal = parseFloat(splitCard) || 0;
   const canPaySplit = paymentMethod === 'SPLIT' && Math.round((splitCashVal + splitCardVal) * 100) >= Math.round(total * 100);
 
-  const canSubmitPayment = canPayCash || canPayCard || canPaySplit;
+  const canSubmitPayment = canPayCash || canPayCashless || canPaySplit;
 
   async function submitOrder() {
     if (!canSubmitPayment) return;
@@ -415,12 +412,13 @@ export default function POSPage() {
       if (paymentMethod === 'CASH') {
         paidAmount = cashPaid;
         cashAmt = cashPaid;
-      } else if (paymentMethod === 'CARD') {
-        cardAmt = total;
-      } else {
+      } else if (paymentMethod === 'SPLIT') {
         paidAmount = splitCashVal + splitCardVal;
         cashAmt = splitCashVal;
         cardAmt = splitCardVal;
+      } else {
+        // cashless rails (card / mada / stc pay / apple pay / tabby / tamara)
+        cardAmt = total;
       }
 
       const { data: order } = await api.post('/orders', {
@@ -899,27 +897,31 @@ export default function POSPage() {
                 <p className="text-3xl font-bold text-primary-700 dark:text-primary-300">{formatSAR(total)} <SARSymbol /></p>
               </div>
 
-              {/* Payment method tabs */}
-              <div className="flex gap-2">
-                {([
-                  { key: 'CASH' as PaymentMethod, label: 'نقدي', icon: Banknote },
-                  { key: 'CARD' as PaymentMethod, label: 'بطاقة', icon: CreditCard },
-                  { key: 'SPLIT' as PaymentMethod, label: 'مقسم', icon: Split },
-                ]).map(({ key, label, icon: Icon }) => (
-                  <button
-                    key={key}
-                    onClick={() => setPaymentMethod(key)}
-                    className={cn(
-                      'flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-colors',
-                      paymentMethod === key
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-400 hover:bg-gray-200',
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </button>
-                ))}
+              {/* Payment method picker — cash, card & Saudi rails (Mada, STC Pay, Apple Pay, Tabby, Tamara), split */}
+              <div className="grid grid-cols-4 gap-2">
+                {PAYMENT_METHOD_ORDER.map((key) => {
+                  const meta = PAYMENT_METHODS[key];
+                  const active = paymentMethod === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setPaymentMethod(key)}
+                      className={cn(
+                        'flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-xs font-medium border transition-all text-center',
+                        active
+                          ? 'bg-primary-600 text-white border-primary-600 shadow-sm shadow-primary-500/25'
+                          : 'bg-gray-50 dark:bg-dark-hover text-gray-600 dark:text-gray-300 border-gray-200 dark:border-dark-border hover:border-primary-300',
+                      )}
+                    >
+                      <span className="leading-tight">{meta.short}</span>
+                      {meta.isBnpl && (
+                        <span className={cn('text-[9px] leading-none px-1 py-0.5 rounded', active ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300')}>
+                          تقسيط
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* CASH mode */}
@@ -966,11 +968,18 @@ export default function POSPage() {
                 </div>
               )}
 
-              {/* CARD mode */}
-              {paymentMethod === 'CARD' && (
+              {/* Cashless rails — card / mada / stc pay / apple pay / tabby / tamara */}
+              {paymentCategory === 'cashless' && (
                 <div className="p-6 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 text-center">
                   <CreditCard className="w-12 h-12 text-blue-400 mx-auto mb-3" />
-                  <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">سيتم خصم المبلغ من البطاقة</p>
+                  <div className="flex items-center justify-center gap-2">
+                    <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                      {PAYMENT_METHODS[paymentMethod].isBnpl ? 'دفع بالتقسيط عبر' : 'سيتم الدفع عبر'}
+                    </p>
+                    <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full', PAYMENT_METHODS[paymentMethod].badgeClass)}>
+                      {PAYMENT_METHODS[paymentMethod].label}
+                    </span>
+                  </div>
                   <p className="text-2xl font-bold text-blue-800 dark:text-blue-200 mt-2">{formatSAR(total)} <SARSymbol /></p>
                 </div>
               )}

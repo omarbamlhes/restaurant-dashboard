@@ -4,6 +4,7 @@ import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
 import { OrdersGateway } from './orders.gateway';
 import { CacheService } from '../cache/cache.service';
 import { buildZatcaQR } from '../common/zatca';
+import { pointsForOrder } from '../customers/loyalty.config';
 
 @Injectable()
 export class OrdersService {
@@ -92,8 +93,6 @@ export class OrdersService {
     if (dto.paymentMethod === 'CASH') {
       cashAmount = paidAmount;
       changeAmount = Math.round((paidAmount - total) * 100) / 100;
-    } else if (dto.paymentMethod === 'CARD') {
-      cardAmount = total;
     } else if (dto.paymentMethod === 'SPLIT') {
       cashAmount = dto.cashAmount || 0;
       cardAmount = dto.cardAmount || 0;
@@ -101,6 +100,10 @@ export class OrdersService {
         throw new BadRequestException('مجموع الدفع المقسم لا يغطي الإجمالي');
       }
       changeAmount = Math.round((cashAmount + cardAmount - total) * 100) / 100;
+    } else {
+      // Card, Mada, STC Pay, Apple Pay, Tabby, Tamara — cashless, paid in full,
+      // no change. cardAmount tracks the non-cash settled total.
+      cardAmount = total;
     }
 
     // Table validation for dine-in
@@ -126,6 +129,7 @@ export class OrdersService {
         cardAmount,
         changeAmount,
         tableId: dto.type === 'DINE_IN' ? dto.tableId : null,
+        customerId: dto.customerId ?? null,
         items: { create: itemsData },
       },
       include: {
@@ -143,6 +147,40 @@ export class OrdersService {
         include: { branch: { select: { nameAr: true } } },
       });
       this.ordersGateway.emitTableStatusChanged(restaurantId, updatedTable);
+    }
+
+    // Customer stats + loyalty points (only when the order is tied to a customer).
+    const customerId = dto.customerId;
+    if (customerId) {
+      const earned = pointsForOrder(total);
+      const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+      if (customer) {
+        await this.prisma.$transaction(async (tx) => {
+          const newBalance = customer.loyaltyPoints + earned;
+          await tx.customer.update({
+            where: { id: customerId },
+            data: {
+              totalOrders: { increment: 1 },
+              totalSpent: { increment: total },
+              lastOrderAt: new Date(),
+              loyaltyPoints: newBalance,
+              lifetimePoints: { increment: earned },
+            },
+          });
+          if (earned > 0) {
+            await tx.loyaltyTransaction.create({
+              data: {
+                customerId,
+                orderId: order.id,
+                type: 'EARN',
+                points: earned,
+                balanceAfter: newBalance,
+                note: `طلب ${order.orderNumber}`,
+              },
+            });
+          }
+        });
+      }
     }
 
     this.ordersGateway.emitNewOrder(restaurantId, order);
@@ -259,14 +297,30 @@ export class OrdersService {
     const totalDiscount = completed.reduce((s, o) => s + Number(o.discount), 0);
     const avgOrderValue = completed.length > 0 ? totalRevenue / completed.length : 0;
 
-    // Payment breakdown
+    // Payment breakdown. CARD here aggregates every cashless rail (card, Mada,
+    // STC Pay, Apple Pay, Tabby, Tamara) so the cash-vs-cashless split stays
+    // meaningful; `byMethod` keeps the per-rail detail for reporting.
     const cashOrders = completed.filter((o) => o.paymentMethod === 'CASH');
-    const cardOrders = completed.filter((o) => o.paymentMethod === 'CARD');
     const splitOrders = completed.filter((o) => o.paymentMethod === 'SPLIT');
+    const cardOrders = completed.filter(
+      (o) => o.paymentMethod !== 'CASH' && o.paymentMethod !== 'SPLIT',
+    );
 
     const totalCash = completed.reduce((s, o) => s + Number(o.cashAmount), 0);
     const totalCard = completed.reduce((s, o) => s + Number(o.cardAmount), 0);
     const totalChange = completed.reduce((s, o) => s + Number(o.changeAmount), 0);
+
+    // Per-rail breakdown (by order total), sorted by revenue desc.
+    const methodAgg: Record<string, { count: number; total: number }> = {};
+    completed.forEach((o) => {
+      const m = o.paymentMethod;
+      if (!methodAgg[m]) methodAgg[m] = { count: 0, total: 0 };
+      methodAgg[m].count += 1;
+      methodAgg[m].total += Number(o.total);
+    });
+    const byMethod = Object.entries(methodAgg)
+      .map(([method, v]) => ({ method, count: v.count, total: Math.round(v.total * 100) / 100 }))
+      .sort((a, b) => b.total - a.total);
 
     // Type breakdown
     const dineIn = completed.filter((o) => o.type === 'DINE_IN');
@@ -303,6 +357,7 @@ export class OrdersService {
         card: { count: cardOrders.length, total: Math.round(totalCard * 100) / 100 },
         split: { count: splitOrders.length },
         totalChange: Math.round(totalChange * 100) / 100,
+        byMethod,
       },
       orderTypes: {
         dineIn: { count: dineIn.length, total: Math.round(dineIn.reduce((s, o) => s + Number(o.total), 0) * 100) / 100 },

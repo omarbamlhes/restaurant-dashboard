@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Printer, X } from 'lucide-react';
 import { formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
+import { paymentLabel } from '@/lib/payment-methods';
 
 interface ReceiptItem {
   id: string;
@@ -48,12 +49,6 @@ const typeLabels: Record<string, string> = {
   DINE_IN: 'محلي',
   TAKEAWAY: 'سفري',
   DELIVERY: 'توصيل',
-};
-
-const paymentLabels: Record<string, string> = {
-  CASH: 'نقدي',
-  CARD: 'بطاقة',
-  SPLIT: 'مقسم',
 };
 
 // ZATCA TLV encoding for simplified tax invoice QR
@@ -226,7 +221,7 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
           <div className="space-y-1 text-xs">
             <div className="flex justify-between">
               <span>طريقة الدفع</span>
-              <span>{paymentLabels[order.paymentMethod] || order.paymentMethod}</span>
+              <span>{paymentLabel(order.paymentMethod)}</span>
             </div>
             {order.paymentMethod === 'CASH' && (
               <>

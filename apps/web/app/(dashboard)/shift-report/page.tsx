@@ -7,7 +7,8 @@ import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import SARSymbol from '@/components/shared/SARSymbol';
 import { useApi } from '@/hooks/useApi';
-import { formatSAR } from '@/lib/utils';
+import { formatSAR, cn } from '@/lib/utils';
+import { paymentLabel, paymentBadgeClass } from '@/lib/payment-methods';
 
 interface ShiftReport {
   period: { from: string; to: string };
@@ -23,6 +24,7 @@ interface ShiftReport {
     card: { count: number; total: number };
     split: { count: number };
     totalChange: number;
+    byMethod: { method: string; count: number; total: number }[];
   };
   orderTypes: {
     dineIn: { count: number; total: number };
@@ -150,10 +152,23 @@ export default function ShiftReportPage() {
             <div className="glass-card p-4">
               <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3">حسب طريقة الدفع</h4>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-gray-500">نقدي ({report.payment.cash.count})</span><span className="font-medium">{formatSAR(report.payment.cash.total)} <SARSymbol /></span></div>
-                <div className="flex justify-between"><span className="text-gray-500">بطاقة ({report.payment.card.count})</span><span className="font-medium">{formatSAR(report.payment.card.total)} <SARSymbol /></span></div>
-                {report.payment.split.count > 0 && <div className="flex justify-between"><span className="text-gray-500">مقسّم ({report.payment.split.count})</span><span className="font-medium">-</span></div>}
-                {report.payment.totalChange > 0 && <div className="flex justify-between text-amber-600"><span>الباقي المعاد</span><span className="font-medium">{formatSAR(report.payment.totalChange)} <SARSymbol /></span></div>}
+                {report.payment.byMethod.map((m) => (
+                  <div key={m.method} className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-full', paymentBadgeClass(m.method))}>
+                        {paymentLabel(m.method)}
+                      </span>
+                      <span className="text-gray-400 text-xs">({m.count})</span>
+                    </span>
+                    <span className="font-medium">{formatSAR(m.total)} <SARSymbol /></span>
+                  </div>
+                ))}
+                {report.payment.totalChange > 0 && (
+                  <div className="flex justify-between text-amber-600 pt-2 border-t border-gray-200 dark:border-dark-border">
+                    <span>الباقي المعاد</span>
+                    <span className="font-medium">{formatSAR(report.payment.totalChange)} <SARSymbol /></span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="glass-card p-4">

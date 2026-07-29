@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, Request } from 
 import { UserRole } from '@prisma/client';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto, UpdateCustomerDto } from './dto/create-customer.dto';
+import { RedeemPointsDto, AdjustPointsDto } from './dto/loyalty.dto';
 import { Roles } from '../common/roles.decorator';
 import { Permission } from '../common/permission.decorator';
 import { RestaurantHelper } from '../common/restaurant.helper';
@@ -38,6 +39,24 @@ export class CustomersController {
   async findOne(@Request() req, @Param('id') id: string) {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.customersService.findOne(id, rid);
+  }
+
+  @Get(':id/loyalty')
+  async getLoyalty(@Request() req, @Param('id') id: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.customersService.getLoyalty(id, rid);
+  }
+
+  @Post(':id/loyalty/redeem')
+  async redeemLoyalty(@Request() req, @Param('id') id: string, @Body() dto: RedeemPointsDto) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.customersService.redeemPoints(id, rid, dto.points, dto.note);
+  }
+
+  @Post(':id/loyalty/adjust')
+  async adjustLoyalty(@Request() req, @Param('id') id: string, @Body() dto: AdjustPointsDto) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.customersService.adjustPoints(id, rid, dto.points, dto.note);
   }
 
   @Post()

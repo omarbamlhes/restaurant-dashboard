@@ -38,6 +38,9 @@ export class CreateOrderDto {
   @IsOptional() @IsString()
   tableId?: string;
 
+  @IsOptional() @IsString()
+  customerId?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)

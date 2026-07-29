@@ -330,15 +330,38 @@ model Customer {
   totalOrders    Int          @default(0)
   totalSpent     Decimal      @db.Decimal(12, 2) @default(0)
   lastOrderAt    DateTime?
+  loyaltyPoints  Int          @default(0) // current redeemable balance
+  lifetimePoints Int          @default(0) // total ever earned — drives tier, never decreases
   restaurantId   String
   restaurant     Restaurant   @relation(fields: [restaurantId], references: [id])
   orders         Order[]
   reservations   Reservation[]
+  loyaltyTxns    LoyaltyTransaction[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   @@unique([restaurantId, phone])
   @@index([restaurantId])
+}
+
+enum LoyaltyTxnType {
+  EARN
+  REDEEM
+  ADJUST
+}
+
+model LoyaltyTransaction {
+  id           String         @id @default(cuid())
+  customerId   String
+  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId      String?
+  type         LoyaltyTxnType
+  points       Int            // positive = earn, negative = redeem/deduct
+  balanceAfter Int            // running balance after this txn
+  note         String?
+  createdAt    DateTime       @default(now())
+
+  @@index([customerId])
 }
 
 // ============ ORDERS ============
@@ -376,6 +399,11 @@ model Order {
 enum PaymentMethod {
   CASH
   CARD
+  MADA
+  STC_PAY
+  APPLE_PAY
+  TABBY
+  TAMARA
   SPLIT
 }
 

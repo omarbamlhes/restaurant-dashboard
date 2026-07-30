@@ -22,12 +22,15 @@ import {
   Split,
   Printer,
   BarChart3,
+  Moon,
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 import { PAYMENT_METHODS, PAYMENT_METHOD_ORDER, type PaymentMethodKey } from '@/lib/payment-methods';
+import { DELIVERY_SOURCES, DELIVERY_SOURCE_ORDER, type DeliverySourceKey } from '@/lib/delivery-sources';
+import { usePrayerWindow } from '@/hooks/usePrayerWindow';
 import Receipt from '@/components/shared/Receipt';
 import { useAuthStore } from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
@@ -252,6 +255,17 @@ export default function POSPage() {
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderType, setOrderType] = useState<OrderType>('DINE_IN');
+  const [deliverySource, setDeliverySource] = useState<DeliverySourceKey>('IN_HOUSE');
+
+  // Prayer mode: softly pause checkout during prayer windows (staff can override).
+  const [previewPrayer, setPreviewPrayer] = useState(false);
+  const prayer = usePrayerWindow(undefined, undefined, previewPrayer);
+  const [prayerOverride, setPrayerOverride] = useState(false);
+  const ordersPaused = prayer.active && !prayerOverride;
+  // Reset the manual override once the prayer window passes.
+  useEffect(() => {
+    if (!prayer.active && prayerOverride) setPrayerOverride(false);
+  }, [prayer.active, prayerOverride]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [discount, setDiscount] = useState(0);
@@ -382,6 +396,7 @@ export default function POSPage() {
 
   function openPaymentModal() {
     if (cart.length === 0 || !selectedBranch) return;
+    if (ordersPaused) return;
     setPaymentMethod('CASH');
     setCashInput('');
     setSplitCash('');
@@ -430,6 +445,7 @@ export default function POSPage() {
         cashAmount: cashAmt,
         cardAmount: cardAmt,
         tableId: orderType === 'DINE_IN' ? selectedTable : undefined,
+        deliverySource: orderType === 'DELIVERY' ? deliverySource : undefined,
         items: cart.map((c) => ({
           menuItemId: c.menuItemId,
           quantity: c.quantity,
@@ -506,6 +522,20 @@ export default function POSPage() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Prayer-mode preview toggle */}
+          <button
+            onClick={() => setPreviewPrayer((v) => !v)}
+            className={cn(
+              'flex items-center gap-2 text-sm transition-colors',
+              previewPrayer ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400 hover:text-emerald-600',
+            )}
+            title="معاينة وضع الصلاة"
+          >
+            <Moon className="w-4 h-4" />
+            <span className="hidden sm:inline">{previewPrayer ? 'إيقاف المعاينة' : 'معاينة الصلاة'}</span>
+          </button>
+          <div className="h-5 w-px bg-gray-200 dark:bg-dark-border" />
+
           {/* Shift Report */}
           <button
             onClick={() => setShowShiftReport(true)}
@@ -696,6 +726,36 @@ export default function POSPage() {
             </div>
           </div>
 
+          {/* Delivery source picker for DELIVERY */}
+          {orderType === 'DELIVERY' && (
+            <div className="flex-shrink-0 p-3 border-b border-gray-100 dark:border-dark-border/50">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">مصدر التوصيل</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {DELIVERY_SOURCE_ORDER.map((key) => {
+                  const meta = DELIVERY_SOURCES[key];
+                  const active = deliverySource === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setDeliverySource(key)}
+                      className={cn(
+                        'flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg text-xs font-medium border transition-all min-h-[40px]',
+                        active
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'bg-gray-50 dark:bg-dark-hover text-gray-600 dark:text-gray-300 border-gray-200 dark:border-dark-border hover:border-primary-300',
+                      )}
+                    >
+                      <span className={cn('inline-flex items-center justify-center rounded-md text-[10px] font-bold w-4 h-4 shrink-0', active ? 'bg-white/25 text-white' : meta.markClass)}>
+                        {meta.mark}
+                      </span>
+                      <span className="truncate">{meta.short}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Table Picker for DINE_IN */}
           {orderType === 'DINE_IN' && tables.length > 0 && (
             <div className="flex-shrink-0 p-3 border-b border-gray-100 dark:border-dark-border/50">
@@ -854,15 +914,38 @@ export default function POSPage() {
               </div>
             </div>
 
+            {/* Prayer-time soft pause */}
+            {prayer.active && (
+              <div className="mb-2 rounded-xl border border-emerald-300/60 bg-emerald-50 dark:border-emerald-800/60 dark:bg-emerald-950/30 p-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                  <Moon className="w-4 h-4" />
+                  وقت صلاة {prayer.label}
+                </div>
+                <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">
+                  {ordersPaused
+                    ? `الطلبات متوقفة مؤقتاً · تُستأنف بعد ${prayer.endsInMinutes} دقيقة`
+                    : 'تم تجاوز الإيقاف — يمكنك إتمام الطلب'}
+                </p>
+                {ordersPaused && (
+                  <button
+                    onClick={() => setPrayerOverride(true)}
+                    className="mt-2 w-full py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-dark-card text-emerald-700 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                  >
+                    تجاوز والمتابعة
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Action buttons */}
             <div className="flex gap-2">
               <button
                 onClick={openPaymentModal}
-                disabled={cart.length === 0 || !selectedBranch}
+                disabled={cart.length === 0 || !selectedBranch || ordersPaused}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[48px] active:scale-[0.98]"
               >
                 <Banknote className="w-4 h-4" />
-                الدفع
+                {ordersPaused ? 'الطلبات متوقفة' : 'الدفع'}
               </button>
               {cart.length > 0 && (
                 <button

@@ -9,6 +9,7 @@ import SARSymbol from '@/components/shared/SARSymbol';
 import { useApi } from '@/hooks/useApi';
 import { formatSAR, cn } from '@/lib/utils';
 import { paymentLabel, paymentBadgeClass } from '@/lib/payment-methods';
+import DeliverySourceBadge from '@/components/shared/DeliverySourceBadge';
 
 interface ShiftReport {
   period: { from: string; to: string };
@@ -31,6 +32,7 @@ interface ShiftReport {
     takeaway: { count: number; total: number };
     delivery: { count: number; total: number };
   };
+  deliveryBySource: { source: string; count: number; total: number }[];
   topItems: { nameAr: string; quantity: number; revenue: number }[];
 }
 
@@ -180,6 +182,24 @@ export default function ShiftReportPage() {
               </div>
             </div>
           </div>
+
+          {/* Delivery by platform */}
+          {report.deliveryBySource.length > 0 && (
+            <div className="glass-card p-4">
+              <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3">توصيل حسب المنصة</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                {report.deliveryBySource.map((d) => (
+                  <div key={d.source} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-dark-hover">
+                    <span className="flex items-center gap-2">
+                      <DeliverySourceBadge source={d.source} />
+                      <span className="text-gray-400 text-xs">({d.count})</span>
+                    </span>
+                    <span className="font-medium">{formatSAR(d.total)} <SARSymbol /></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Top items */}
           {report.topItems.length > 0 && (

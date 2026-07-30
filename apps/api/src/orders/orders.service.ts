@@ -46,7 +46,7 @@ export class OrdersService {
         include: {
           branch: { select: { nameAr: true } },
           table: { select: { number: true, nameAr: true } },
-          items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+          items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -129,13 +129,14 @@ export class OrdersService {
         cardAmount,
         changeAmount,
         tableId: dto.type === 'DINE_IN' ? dto.tableId : null,
+        deliverySource: dto.type === 'DELIVERY' ? dto.deliverySource ?? 'IN_HOUSE' : null,
         customerId: dto.customerId ?? null,
         items: { create: itemsData },
       },
       include: {
         branch: { select: { nameAr: true } },
         table: { select: { number: true, nameAr: true } },
-        items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+        items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
       },
     });
 
@@ -207,7 +208,7 @@ export class OrdersService {
       include: {
         branch: { select: { nameAr: true } },
         table: { select: { number: true, nameAr: true } },
-        items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+        items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
       },
     });
 
@@ -327,6 +328,18 @@ export class OrdersService {
     const takeaway = completed.filter((o) => o.type === 'TAKEAWAY');
     const delivery = completed.filter((o) => o.type === 'DELIVERY');
 
+    // Delivery split by platform (Jahez, HungerStation, ToYou, Keeta, Mrsool, in-house).
+    const sourceAgg: Record<string, { count: number; total: number }> = {};
+    delivery.forEach((o) => {
+      const src = o.deliverySource ?? 'IN_HOUSE';
+      if (!sourceAgg[src]) sourceAgg[src] = { count: 0, total: 0 };
+      sourceAgg[src].count += 1;
+      sourceAgg[src].total += Number(o.total);
+    });
+    const deliveryBySource = Object.entries(sourceAgg)
+      .map(([source, v]) => ({ source, count: v.count, total: Math.round(v.total * 100) / 100 }))
+      .sort((a, b) => b.total - a.total);
+
     // Top items
     const itemCounts: Record<string, { nameAr: string; quantity: number; revenue: number }> = {};
     completed.forEach((o) => {
@@ -364,6 +377,7 @@ export class OrdersService {
         takeaway: { count: takeaway.length, total: Math.round(takeaway.reduce((s, o) => s + Number(o.total), 0) * 100) / 100 },
         delivery: { count: delivery.length, total: Math.round(delivery.reduce((s, o) => s + Number(o.total), 0) * 100) / 100 },
       },
+      deliveryBySource,
       topItems,
     };
   }
@@ -404,7 +418,7 @@ export class OrdersService {
         include: {
           branch: { select: { nameAr: true } },
           table: { select: { number: true, nameAr: true } },
-          items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+          items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
         },
       });
       this.ordersGateway.emitOrderStatusChanged(restaurantId, readyOrder);
@@ -415,7 +429,7 @@ export class OrdersService {
         include: {
           branch: { select: { nameAr: true } },
           table: { select: { number: true, nameAr: true } },
-          items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+          items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
         },
       });
       this.ordersGateway.emitOrderStatusChanged(restaurantId, preparingOrder);

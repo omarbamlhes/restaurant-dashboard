@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle, Printer } from 'lucide-react';
+import { ShoppingBag, Filter, ChevronLeft, ChevronRight, Eye, X, Clock, CheckCircle, Printer, FileSpreadsheet } from 'lucide-react';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import Receipt from '@/components/shared/Receipt';
@@ -9,7 +9,9 @@ import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useApi } from '@/hooks/useApi';
 import { cn, formatSAR } from '@/lib/utils';
+import { downloadCSV, fileDateStamp } from '@/lib/export';
 import SARSymbol from '@/components/shared/SARSymbol';
+import DeliverySourceBadge from '@/components/shared/DeliverySourceBadge';
 
 const statusMap: Record<string, { label: string; class: string }> = {
   PENDING: { label: 'جديد', class: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' },
@@ -44,6 +46,7 @@ interface Order {
   id: string;
   orderNumber: string;
   type: string;
+  deliverySource?: string | null;
   status: string;
   subtotal: number;
   tax: number;
@@ -68,6 +71,10 @@ export default function OrdersPage() {
 
   // Receipt
   const [receiptOrder, setReceiptOrder] = useState<any>(null);
+
+  // CSV export (fetches ALL orders matching the current filters, not just the
+  // 15 rows on screen)
+  const [exporting, setExporting] = useState(false);
 
   // SWR-cached orders list. The key carries page + filters, so paging and
   // filtering serve cache instantly and revalidate on window focus.
@@ -105,6 +112,40 @@ export default function OrdersPage() {
     }
   }
 
+  async function exportOrdersCSV() {
+    setExporting(true);
+    try {
+      // Re-query with the active filters but pull the full set for export.
+      const params = new URLSearchParams({ page: '1', limit: '10000' });
+      if (statusFilter) params.set('status', statusFilter);
+      if (typeFilter) params.set('type', typeFilter);
+      if (branchFilter) params.set('branchId', branchFilter);
+      const { data } = await api.get<{ data: Order[]; total: number }>(`/orders?${params}`);
+      const allOrders = data?.data ?? [];
+
+      const headers = ['رقم الطلب', 'التاريخ', 'الفرع', 'النوع', 'الحالة', 'المجموع الفرعي', 'الضريبة', 'الخصم', 'الإجمالي'];
+      const rows = allOrders.map((o) => [
+        o.orderNumber,
+        new Date(o.createdAt).toLocaleString('ar-SA'),
+        o.branch?.nameAr ?? '',
+        typeMap[o.type] ?? o.type,
+        statusMap[o.status]?.label ?? o.status,
+        o.subtotal,
+        o.tax,
+        o.discount,
+        o.total,
+      ]);
+
+      const ok = downloadCSV(`الطلبات-${fileDateStamp()}`, headers, rows);
+      if (ok) toast.success('تم تصدير ملف Excel');
+      else toast.error('لا توجد بيانات للتصدير');
+    } catch {
+      toast.error('فشل تصدير الطلبات');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -115,8 +156,16 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">الطلبات</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة ومتابعة جميع الطلبات</p>
         </div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          {total} طلب
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500 dark:text-gray-400">{total} طلب</span>
+          <button
+            onClick={exportOrdersCSV}
+            disabled={exporting || total === 0}
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            {exporting ? 'جاري التصدير...' : 'تصدير Excel'}
+          </button>
         </div>
       </div>
 
@@ -194,7 +243,12 @@ export default function OrdersPage() {
                         </span>
                       </td>
                       <td className="p-4">
-                        <span className="text-sm text-gray-700 dark:text-gray-300">{typeMap[order.type] || order.type}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{typeMap[order.type] || order.type}</span>
+                          {order.type === 'DELIVERY' && order.deliverySource && (
+                            <DeliverySourceBadge source={order.deliverySource} />
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <span className="text-sm text-gray-700 dark:text-gray-300">{order.branch?.nameAr || '—'}</span>
@@ -264,8 +318,11 @@ export default function OrdersPage() {
                     <span className={cn('text-xs px-2.5 py-1 rounded-lg font-medium', status.class)}>{status.label}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <div className="text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
                       <span>{typeMap[order.type] || order.type}</span>
+                      {order.type === 'DELIVERY' && order.deliverySource && (
+                        <DeliverySourceBadge source={order.deliverySource} />
+                      )}
                       {order.branch?.nameAr && <span> · {order.branch.nameAr}</span>}
                     </div>
                     <span className="font-semibold text-gray-900 dark:text-gray-100">{formatSAR(order.total)} <SARSymbol /></span>

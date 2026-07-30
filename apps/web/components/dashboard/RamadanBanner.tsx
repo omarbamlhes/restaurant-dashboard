@@ -10,6 +10,7 @@ import {
   type PrayerName,
 } from '@/lib/prayer-times';
 import { getHijriDate, isRamadan } from '@/lib/hijri';
+import { getPrayerWindow } from '@/lib/prayer-window';
 import { cn } from '@/lib/utils';
 
 interface RamadanBannerProps {
@@ -65,6 +66,11 @@ export default function RamadanBanner({
     [now, latitude, longitude],
   );
 
+  const prayerWindow = useMemo(
+    () => (now ? getPrayerWindow(now, latitude, longitude) : null),
+    [now, latitude, longitude],
+  );
+
   // Avoid hydration mismatch: render nothing until the client clock is set.
   if (!now || !hijri || !prayers || !next) return null;
 
@@ -92,6 +98,17 @@ export default function RamadanBanner({
       )}
     >
       {ramadanMode && <RamadanDecor />}
+
+      {/* Prayer-time indicator — shows while ordering is typically paused */}
+      {prayerWindow?.active && (
+        <div className={cn(
+          'relative flex items-center justify-center gap-2 py-1.5 text-xs font-semibold',
+          ramadanMode ? 'bg-amber-400/15 text-amber-100' : 'bg-emerald-600 text-white',
+        )}>
+          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+          حان الآن وقت صلاة {prayerWindow.label} · تُستأنف الطلبات بعد {prayerWindow.endsInMinutes} دقيقة
+        </div>
+      )}
 
       <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
         {/* Right: greeting + hijri date */}

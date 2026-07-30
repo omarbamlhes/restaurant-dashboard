@@ -385,6 +385,7 @@ model Order {
   branch         Branch         @relation(fields: [branchId], references: [id])
   tableId        String?
   table          Table?         @relation(fields: [tableId], references: [id])
+  deliverySource DeliverySource? // platform a DELIVERY order came through
   customerId     String?
   customer       Customer?      @relation(fields: [customerId], references: [id])
   items          OrderItem[]
@@ -416,6 +417,15 @@ enum OrderType {
   DINE_IN
   TAKEAWAY
   DELIVERY
+}
+
+enum DeliverySource {
+  IN_HOUSE
+  JAHEZ
+  HUNGERSTATION
+  TOYOU
+  KEETA
+  MRSOOL
 }
 
 enum OrderStatus {

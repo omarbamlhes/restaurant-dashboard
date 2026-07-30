@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import { useApi } from '@/hooks/useApi';
+import PrayerGapCard from '@/components/dashboard/PrayerGapCard';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -224,6 +225,9 @@ export default function AnalyticsPage() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Prayer-time gap analysis */}
+      <PrayerGapCard />
 
       {/* Profit Margins Table */}
       <div className="glass-card overflow-hidden animate-fade-in-up">

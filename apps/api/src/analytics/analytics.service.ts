@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
+import {
+  getPrayerTimes,
+  PRAYER_LABELS_AR,
+  PAUSING_PRAYERS,
+  DEFAULT_COORDS,
+} from '../common/prayer-times';
 
 const ANALYTICS_TTL = 60; // seconds — dashboards poll frequently; 60s is fresh enough
 
@@ -59,6 +65,14 @@ export class AnalyticsService {
       `analytics:${restaurantId}:insights:${branchId || 'all'}`,
       ANALYTICS_TTL,
       () => this._getInsights(restaurantId, branchId),
+    );
+  }
+
+  getPrayerGap(restaurantId: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:prayer-gap:${branchId || 'all'}`,
+      ANALYTICS_TTL,
+      () => this._getPrayerGap(restaurantId, branchId),
     );
   }
 
@@ -363,6 +377,101 @@ export class AnalyticsService {
       orders: val.orders,
       revenue: Math.round(val.revenue),
     }));
+  }
+
+  // Prayer-gap analysis: how much order flow dips during each prayer window
+  // versus the surrounding "shoulder" minutes. Uses the branch's own coords so
+  // prayer times are accurate per location (falls back to Riyadh).
+  private async _getPrayerGap(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Resolve coordinates from the covered branches (first with coords, else Riyadh).
+    const branchesWithCoords = await this.prisma.branch.findMany({
+      where: { id: { in: branchIds } },
+      select: { latitude: true, longitude: true },
+    });
+    const geo = branchesWithCoords.find((b) => b.latitude != null && b.longitude != null);
+    const lat = geo?.latitude ?? DEFAULT_COORDS.latitude;
+    const lng = geo?.longitude ?? DEFAULT_COORDS.longitude;
+
+    const orders = await this.prisma.order.findMany({
+      where: { branchId: { in: branchIds }, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
+      select: { total: true, createdAt: true },
+    });
+
+    const WINDOW = 30; // minutes from adhan considered "prayer time"
+    const SHOULDER = 45; // minutes on each side used as the local baseline
+
+    // Cache each day's prayer times so we compute them once per calendar day.
+    const dayCache: Record<string, ReturnType<typeof getPrayerTimes>> = {};
+    const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+    const agg: Record<string, { win: number; winRev: number; shoulder: number }> = {};
+    for (const p of PAUSING_PRAYERS) agg[p] = { win: 0, winRev: 0, shoulder: 0 };
+    const activeDays = new Set<string>();
+
+    for (const o of orders) {
+      const when = new Date(o.createdAt);
+      const key = dayKey(when);
+      activeDays.add(key);
+      if (!dayCache[key]) dayCache[key] = getPrayerTimes(when, lat, lng);
+      const times = dayCache[key];
+
+      for (const p of PAUSING_PRAYERS) {
+        const deltaMin = (when.getTime() - times[p].getTime()) / 60000;
+        if (deltaMin >= 0 && deltaMin < WINDOW) {
+          agg[p].win += 1;
+          agg[p].winRev += Number(o.total);
+        } else if (
+          (deltaMin >= -SHOULDER && deltaMin < 0) ||
+          (deltaMin >= WINDOW && deltaMin < WINDOW + SHOULDER)
+        ) {
+          agg[p].shoulder += 1;
+        }
+      }
+    }
+
+    const days = Math.max(1, activeDays.size);
+    const prayers = PAUSING_PRAYERS.map((p) => {
+      const winRatePerHr = (agg[p].win / (days * WINDOW)) * 60;
+      const shoulderRatePerHr = (agg[p].shoulder / (days * SHOULDER * 2)) * 60;
+      const dipPercent =
+        shoulderRatePerHr > 0
+          ? Math.round((1 - winRatePerHr / shoulderRatePerHr) * 100)
+          : 0;
+      // Orders we'd expect at the baseline rate minus what actually happened.
+      const estLostOrders = Math.max(
+        0,
+        Math.round(((shoulderRatePerHr - winRatePerHr) * (WINDOW / 60)) * days),
+      );
+      return {
+        prayer: p,
+        label: PRAYER_LABELS_AR[p],
+        ordersInWindow: agg[p].win,
+        revenueInWindow: Math.round(agg[p].winRev),
+        windowRatePerHour: Math.round(winRatePerHr * 10) / 10,
+        baselineRatePerHour: Math.round(shoulderRatePerHr * 10) / 10,
+        dipPercent: Math.max(0, dipPercent), // only report actual dips
+        estLostOrders,
+      };
+    });
+
+    const totalEstLostOrders = prayers.reduce((s, p) => s + p.estLostOrders, 0);
+    const biggest = prayers.reduce((a, b) => (b.dipPercent > a.dipPercent ? b : a), prayers[0]);
+    const avgDip = Math.round(prayers.reduce((s, p) => s + p.dipPercent, 0) / prayers.length);
+
+    return {
+      days,
+      prayers,
+      summary: {
+        avgDipPercent: avgDip,
+        totalEstLostOrders,
+        biggestDipPrayer: biggest.dipPercent > 0 ? biggest.label : null,
+        biggestDipPercent: biggest.dipPercent,
+      },
+    };
   }
 
   // Derives natural-language, prioritized business insights from the existing

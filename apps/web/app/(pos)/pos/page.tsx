@@ -23,6 +23,8 @@ import {
   Printer,
   BarChart3,
   Moon,
+  User,
+  Crown,
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -31,6 +33,7 @@ import SARSymbol from '@/components/shared/SARSymbol';
 import { PAYMENT_METHODS, PAYMENT_METHOD_ORDER, type PaymentMethodKey } from '@/lib/payment-methods';
 import { DELIVERY_SOURCES, DELIVERY_SOURCE_ORDER, type DeliverySourceKey } from '@/lib/delivery-sources';
 import { usePrayerWindow } from '@/hooks/usePrayerWindow';
+import CustomerPickerModal, { type PosCustomer } from '@/components/pos/CustomerPickerModal';
 import Receipt from '@/components/shared/Receipt';
 import { useAuthStore } from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
@@ -268,6 +271,8 @@ export default function POSPage() {
   }, [prayer.active, prayerOverride]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [customer, setCustomer] = useState<PosCustomer | null>(null);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [notesItemId, setNotesItemId] = useState<string | null>(null);
 
@@ -446,6 +451,7 @@ export default function POSPage() {
         cardAmount: cardAmt,
         tableId: orderType === 'DINE_IN' ? selectedTable : undefined,
         deliverySource: orderType === 'DELIVERY' ? deliverySource : undefined,
+        customerId: customer?.id,
         items: cart.map((c) => ({
           menuItemId: c.menuItemId,
           quantity: c.quantity,
@@ -453,8 +459,15 @@ export default function POSPage() {
         })),
       });
 
+      // Loyalty earns 1 point per SAR of the order total (see loyalty.config).
+      if (customer) {
+        const earned = Math.floor(Number(order.total) || total);
+        showToast(`تم — كسب ${customer.name} ${earned} نقطة ولاء`);
+      }
+
       setShowPayment(false);
       clearCart();
+      setCustomer(null);
 
       // Fetch receipt data
       try {
@@ -724,6 +737,38 @@ export default function POSPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Customer link — enables loyalty earning */}
+          <div className="flex-shrink-0 px-3 py-2 border-b border-gray-100 dark:border-dark-border/50">
+            {customer ? (
+              <div className="flex items-center gap-2 p-2 rounded-xl bg-primary-50 dark:bg-primary-950/30 border border-primary-200 dark:border-primary-900/50">
+                <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center shrink-0">
+                  <User className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{customer.name}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400" dir="ltr">{customer.phone}</p>
+                </div>
+                {typeof customer.loyaltyPoints === 'number' && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">
+                    <Crown className="w-3.5 h-3.5" />
+                    {customer.loyaltyPoints}
+                  </span>
+                )}
+                <button onClick={() => setCustomer(null)} className="p-1 rounded-lg hover:bg-white/60 dark:hover:bg-dark-card transition-colors shrink-0" title="إزالة">
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCustomerPicker(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-gray-300 dark:border-dark-border text-sm font-medium text-gray-500 dark:text-gray-400 hover:border-primary-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+              >
+                <User className="w-4 h-4" />
+                ربط عميل (نقاط ولاء)
+              </button>
+            )}
           </div>
 
           {/* Delivery source picker for DELIVERY */}
@@ -1130,6 +1175,13 @@ export default function POSPage() {
       {/* Shift Report Modal */}
       {showShiftReport && selectedBranch && (
         <ShiftReportModal branchId={selectedBranch} onClose={() => setShowShiftReport(false)} />
+      )}
+
+      {showCustomerPicker && (
+        <CustomerPickerModal
+          onClose={() => setShowCustomerPicker(false)}
+          onSelect={(c) => { setCustomer(c); setShowCustomerPicker(false); }}
+        />
       )}
 
       {/* Toast */}

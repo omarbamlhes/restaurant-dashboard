@@ -347,17 +347,18 @@ export default function KitchenPage() {
     }
   }
 
-  // Mark all items for a station in an order as next status
+  // Batch-bump a station's items one uniform stage at a time: first click
+  // starts every PENDING item (→PREPARING), next click marks every PREPARING
+  // item ready (→DONE). Keeps the whole station group in step.
   async function advanceAllStationItems(order: Order) {
     const stationItems = getStationItems(order);
-    const pendingItems = stationItems.filter(i => i.stationStatus !== 'DONE');
-    if (pendingItems.length === 0) return;
+    const anyPending = stationItems.some((i) => i.stationStatus === 'PENDING');
+    const from = anyPending ? 'PENDING' : 'PREPARING';
+    const targets = stationItems.filter((i) => i.stationStatus === from);
+    if (targets.length === 0) return;
 
-    for (const item of pendingItems) {
-      const idx = ITEM_STATUS_FLOW.indexOf(item.stationStatus);
-      if (idx < ITEM_STATUS_FLOW.length - 1) {
-        await advanceItemStatus(order.id, item.id, item.stationStatus);
-      }
+    for (const item of targets) {
+      await advanceItemStatus(order.id, item.id, from);
     }
   }
 
@@ -765,26 +766,37 @@ export default function KitchenPage() {
 
                           {/* Action button */}
                           {selectedStation ? (
-                            // Station mode: advance all items for this station
-                            <button
-                              onClick={() => advanceAllStationItems(order)}
-                              disabled={isUpdating || stationItems.every(i => i.stationStatus === 'DONE')}
-                              className={cn(
-                                'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98]',
-                                stationItems.every(i => i.stationStatus === 'DONE')
-                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default'
-                                  : col.btnClass,
-                                isUpdating && 'opacity-60 cursor-not-allowed',
-                              )}
-                              style={{ minHeight: '48px' }}
-                            >
-                              {stationItems.every(i => i.stationStatus === 'DONE')
-                                ? '✓ تم التحضير'
-                                : stationItems.some(i => i.stationStatus === 'PREPARING')
-                                  ? 'تم - جاهز ✓'
-                                  : 'ابدأ الكل'
-                              }
-                            </button>
+                            // Station mode: batch-bump this station's items
+                            (() => {
+                              const allDone = stationItems.every((i) => i.stationStatus === 'DONE');
+                              const anyPending = stationItems.some((i) => i.stationStatus === 'PENDING');
+                              const startCount = stationItems.filter((i) => i.stationStatus === 'PENDING').length;
+                              const readyCount = stationItems.filter((i) => i.stationStatus === 'PREPARING').length;
+                              return (
+                                <button
+                                  onClick={() => advanceAllStationItems(order)}
+                                  disabled={isUpdating || allDone}
+                                  className={cn(
+                                    'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-1.5',
+                                    allDone
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default'
+                                      : anyPending
+                                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                        : 'bg-amber-600 hover:bg-amber-700 text-white',
+                                    isUpdating && 'opacity-60 cursor-not-allowed',
+                                  )}
+                                  style={{ minHeight: '48px' }}
+                                >
+                                  {allDone ? (
+                                    <><Check className="w-4 h-4" /> تم تحضير القسم</>
+                                  ) : anyPending ? (
+                                    <><Flame className="w-4 h-4" /> ابدأ الكل ({startCount})</>
+                                  ) : (
+                                    <><Check className="w-4 h-4" /> جاهز الكل ({readyCount})</>
+                                  )}
+                                </button>
+                              );
+                            })()
                           ) : (
                             // All-stations mode: advance whole order
                             <button

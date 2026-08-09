@@ -27,23 +27,51 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-const navItems: { href: string; label: string; icon: any; permission: Permission }[] = [
-  { href: '/dashboard', label: 'الرئيسية', icon: LayoutDashboard, permission: 'dashboard' },
-  { href: '/pos', label: 'نقطة البيع', icon: Monitor, permission: 'pos' },
-  { href: '/kitchen', label: 'المطبخ', icon: ChefHat, permission: 'kitchen' },
-  { href: '/menu', label: 'القائمة', icon: UtensilsCrossed, permission: 'menu' },
-  { href: '/analytics', label: 'التحليلات', icon: BarChart3, permission: 'analytics' },
-  { href: '/insights', label: 'رؤى ذكية', icon: Sparkles, permission: 'analytics' },
-  { href: '/inventory', label: 'المخزون', icon: Package, permission: 'inventory' },
-  { href: '/customers', label: 'العملاء', icon: UserCircle, permission: 'customers' },
-  { href: '/tables', label: 'الطاولات', icon: Armchair, permission: 'tables' },
-  { href: '/reservations', label: 'الحجوزات', icon: CalendarClock, permission: 'tables' },
-  { href: '/branches', label: 'الفروع', icon: Building2, permission: 'branches' },
-  { href: '/employees', label: 'الموظفين', icon: Users, permission: 'employees' },
-  { href: '/reports', label: 'التقارير', icon: FileText, permission: 'reports' },
-  { href: '/shift-report', label: 'تقرير نهاية اليوم', icon: ReceiptText, permission: 'reports' },
-  { href: '/notifications', label: 'الإشعارات', icon: Bell, permission: 'notifications' },
-  { href: '/settings', label: 'الإعدادات', icon: Settings, permission: 'settings' },
+type NavItem = { href: string; label: string; icon: any; permission: Permission };
+type NavGroup = { title: string; items: NavItem[] };
+
+const navGroups: NavGroup[] = [
+  {
+    title: 'العمليات اليومية',
+    items: [
+      { href: '/dashboard', label: 'الرئيسية', icon: LayoutDashboard, permission: 'dashboard' },
+      { href: '/pos', label: 'نقطة البيع', icon: Monitor, permission: 'pos' },
+      { href: '/kitchen', label: 'المطبخ', icon: ChefHat, permission: 'kitchen' },
+      { href: '/tables', label: 'الطاولات', icon: Armchair, permission: 'tables' },
+      { href: '/reservations', label: 'الحجوزات', icon: CalendarClock, permission: 'tables' },
+    ],
+  },
+  {
+    title: 'القائمة والمخزون',
+    items: [
+      { href: '/menu', label: 'القائمة', icon: UtensilsCrossed, permission: 'menu' },
+      { href: '/inventory', label: 'المخزون', icon: Package, permission: 'inventory' },
+    ],
+  },
+  {
+    title: 'التقارير والتحليلات',
+    items: [
+      { href: '/analytics', label: 'التحليلات', icon: BarChart3, permission: 'analytics' },
+      { href: '/insights', label: 'رؤى ذكية', icon: Sparkles, permission: 'analytics' },
+      { href: '/reports', label: 'التقارير', icon: FileText, permission: 'reports' },
+      { href: '/shift-report', label: 'تقرير نهاية اليوم', icon: ReceiptText, permission: 'reports' },
+    ],
+  },
+  {
+    title: 'الإدارة',
+    items: [
+      { href: '/customers', label: 'العملاء', icon: UserCircle, permission: 'customers' },
+      { href: '/employees', label: 'الموظفين', icon: Users, permission: 'employees' },
+      { href: '/branches', label: 'الفروع', icon: Building2, permission: 'branches' },
+    ],
+  },
+  {
+    title: 'النظام',
+    items: [
+      { href: '/notifications', label: 'الإشعارات', icon: Bell, permission: 'notifications' },
+      { href: '/settings', label: 'الإعدادات', icon: Settings, permission: 'settings' },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -59,7 +87,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const userRole = user?.role;
   const userPermissions = user?.permissions;
 
-  const filteredNavItems = navItems.filter((item) => hasPermission(userRole, item.permission, userPermissions));
+  const isCollapsedDesktop = collapsed && !mobileOpen;
+
+  // Filter each group by permission, then drop any group left with no items so
+  // roles without access don't see an empty section header.
+  const filteredGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => hasPermission(userRole, item.permission, userPermissions)),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -111,24 +148,41 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         </div>
 
         {/* Nav items */}
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {filteredNavItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
-            const isCollapsedDesktop = collapsed && !mobileOpen;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn('sidebar-link', isActive && 'active', isCollapsedDesktop && 'justify-center px-3')}
-                title={isCollapsedDesktop ? item.label : undefined}
-                aria-label={isCollapsedDesktop ? item.label : undefined}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <item.icon className="w-5 h-5 flex-shrink-0" aria-hidden />
-                {!isCollapsedDesktop && <span className="text-sm">{item.label}</span>}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 py-4 px-3 overflow-y-auto">
+          {filteredGroups.map((group, groupIndex) => (
+            <div key={group.title} className="space-y-1">
+              {isCollapsedDesktop ? (
+                // Collapsed: no room for a title — separate groups with a divider
+                // (skip the leading one so the first group sits flush at the top).
+                groupIndex > 0 && (
+                  <div className="my-2 border-t border-gray-200 dark:border-dark-border" role="separator" />
+                )
+              ) : (
+                <p className={cn(
+                  'px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500',
+                  groupIndex > 0 ? 'pt-4' : 'pt-0',
+                )}>
+                  {group.title}
+                </p>
+              )}
+              {group.items.map((item) => {
+                const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn('sidebar-link', isActive && 'active', isCollapsedDesktop && 'justify-center px-3')}
+                    title={isCollapsedDesktop ? item.label : undefined}
+                    aria-label={isCollapsedDesktop ? item.label : undefined}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    <item.icon className="w-5 h-5 flex-shrink-0" aria-hidden />
+                    {!isCollapsedDesktop && <span className="text-sm">{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Collapse toggle - desktop only */}

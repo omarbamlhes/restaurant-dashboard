@@ -574,7 +574,6 @@ export default function LandingPage() {
 
           <div className="border-t border-gray-800 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-gray-500">جميع الحقوق محفوظة &copy; {new Date().getFullYear()} رستق</p>
-            <p className="text-xs text-gray-500">صُنع بحب في السعودية 🇸🇦</p>
           </div>
         </div>
       </footer>

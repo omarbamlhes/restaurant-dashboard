@@ -316,7 +316,34 @@ export class OrdersService {
         })
       : null;
 
-    return { ...order, zatcaQR };
+    // Loyalty summary for the receipt: points redeemed/earned on this order and
+    // the customer's resulting balance (from the txns tied to this order, so a
+    // reprint stays accurate even after later orders move the live balance).
+    let loyalty: {
+      redeemedPoints: number;
+      redeemedValue: number;
+      earnedPoints: number;
+      balance: number | null;
+    } | null = null;
+    if (order.customerId) {
+      const txns = await this.prisma.loyaltyTransaction.findMany({
+        where: { orderId: order.id },
+        select: { type: true, points: true, balanceAfter: true },
+      });
+      const redeem = txns.find((t) => t.type === 'REDEEM');
+      const earn = txns.find((t) => t.type === 'EARN');
+      if (redeem || earn) {
+        const redeemedPoints = redeem ? Math.abs(redeem.points) : 0;
+        loyalty = {
+          redeemedPoints,
+          redeemedValue: pointsValue(redeemedPoints),
+          earnedPoints: earn ? earn.points : 0,
+          balance: earn?.balanceAfter ?? redeem?.balanceAfter ?? null,
+        };
+      }
+    }
+
+    return { ...order, zatcaQR, loyalty };
   }
 
   async getShiftReport(restaurantId: string, filters: { from: string; to: string; branchId?: string }) {

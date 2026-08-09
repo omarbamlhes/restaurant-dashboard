@@ -31,6 +31,12 @@ interface ReceiptData {
   createdAt: string;
   items: ReceiptItem[];
   zatcaQR?: string | null;
+  loyalty?: {
+    redeemedPoints: number;
+    redeemedValue: number;
+    earnedPoints: number;
+    balance: number | null;
+  } | null;
   table?: { number: number; nameAr?: string } | null;
   branch: {
     nameAr: string;
@@ -98,6 +104,12 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
 
   const restaurant = order.branch.restaurant;
   const hasVat = restaurant.taxNumber;
+
+  // The order's `discount` bundles the manual discount and the loyalty
+  // redemption; split them back out so each shows as its own receipt line.
+  const loyalty = order.loyalty;
+  const loyaltyValue = loyalty?.redeemedValue ?? 0;
+  const manualDiscount = Math.max(0, Math.round((Number(order.discount) - loyaltyValue) * 100) / 100);
 
   // Prefer the server-generated QR (authoritative + ZATCA Phase 2-ready),
   // fall back to client-side generation for older API responses.
@@ -202,10 +214,16 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
               <span>ضريبة القيمة المضافة (15%)</span>
               <span className="font-mono">{formatSAR(order.tax)}</span>
             </div>
-            {Number(order.discount) > 0 && (
+            {manualDiscount > 0 && (
               <div className="flex justify-between text-rose-600">
                 <span>خصم</span>
-                <span className="font-mono">-{formatSAR(order.discount)}</span>
+                <span className="font-mono">-{formatSAR(manualDiscount)}</span>
+              </div>
+            )}
+            {loyaltyValue > 0 && (
+              <div className="flex justify-between text-rose-600">
+                <span>استبدال {loyalty!.redeemedPoints} نقطة</span>
+                <span className="font-mono">-{formatSAR(loyaltyValue)}</span>
               </div>
             )}
             <div className="border-t border-gray-300 my-1" />
@@ -256,6 +274,34 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
               </>
             )}
           </div>
+
+          {/* Loyalty summary — points redeemed/earned on this order + balance */}
+          {loyalty && (loyalty.earnedPoints > 0 || loyalty.redeemedPoints > 0) && (
+            <>
+              <div className="border-t border-dashed border-gray-300 my-3" />
+              <div className="space-y-1 text-xs">
+                <p className="font-medium text-gray-700">نقاط الولاء</p>
+                {loyalty.redeemedPoints > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>نقاط مستبدلة</span>
+                    <span className="font-mono">-{loyalty.redeemedPoints}</span>
+                  </div>
+                )}
+                {loyalty.earnedPoints > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>نقاط مكتسبة</span>
+                    <span className="font-mono">+{loyalty.earnedPoints}</span>
+                  </div>
+                )}
+                {loyalty.balance != null && (
+                  <div className="flex justify-between font-medium text-gray-800">
+                    <span>رصيد نقاطك</span>
+                    <span className="font-mono">{loyalty.balance}</span>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* ZATCA QR Code */}
           {qrData && (

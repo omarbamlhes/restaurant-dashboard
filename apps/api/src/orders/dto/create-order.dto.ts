@@ -41,6 +41,11 @@ export class CreateOrderDto {
   @IsOptional() @IsString()
   customerId?: string;
 
+  // Loyalty points the customer redeems against this order (deducted from their
+  // balance, converted to a SAR discount). Requires customerId.
+  @IsOptional() @IsInt()
+  redeemPoints?: number;
+
   @IsOptional() @IsEnum(DeliverySource)
   deliverySource?: DeliverySource;
 

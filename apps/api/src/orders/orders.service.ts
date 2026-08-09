@@ -4,7 +4,7 @@ import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
 import { OrdersGateway } from './orders.gateway';
 import { CacheService } from '../cache/cache.service';
 import { buildZatcaQR } from '../common/zatca';
-import { pointsForOrder } from '../customers/loyalty.config';
+import { pointsForOrder, pointsValue, LOYALTY_MIN_REDEEM } from '../customers/loyalty.config';
 
 @Injectable()
 export class OrdersService {
@@ -77,7 +77,35 @@ export class OrdersService {
 
     const subtotal = itemsData.reduce((s, i) => s + i.totalPrice, 0);
     const tax = Math.round(subtotal * 0.15 * 100) / 100; // 15% VAT
-    const discount = dto.discount || 0;
+    const manualDiscount = dto.discount || 0;
+
+    // Loyalty redemption: validate the balance and convert points to a SAR
+    // discount. Kept alongside the manual discount so the order total already
+    // reflects it; the points are deducted below inside the customer tx.
+    const redeemPoints = Math.max(0, Math.floor(dto.redeemPoints || 0));
+    let loyaltyDiscount = 0;
+    let redeemCustomer: Awaited<ReturnType<typeof this.prisma.customer.findUnique>> = null;
+    if (redeemPoints > 0) {
+      if (!dto.customerId) {
+        throw new BadRequestException('لا يمكن استبدال النقاط بدون عميل');
+      }
+      if (redeemPoints < LOYALTY_MIN_REDEEM) {
+        throw new BadRequestException(`الحد الأدنى للاستبدال ${LOYALTY_MIN_REDEEM} نقطة`);
+      }
+      redeemCustomer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+      if (!redeemCustomer) {
+        throw new BadRequestException('العميل غير موجود');
+      }
+      if (redeemCustomer.loyaltyPoints < redeemPoints) {
+        throw new BadRequestException('نقاط الولاء غير كافية');
+      }
+      loyaltyDiscount = pointsValue(redeemPoints);
+      if (loyaltyDiscount > subtotal + tax - manualDiscount) {
+        throw new BadRequestException('قيمة النقاط المستبدلة أكبر من إجمالي الطلب');
+      }
+    }
+
+    const discount = Math.round((manualDiscount + loyaltyDiscount) * 100) / 100;
     const total = Math.round((subtotal + tax - discount) * 100) / 100;
 
     // Payment validation
@@ -151,20 +179,38 @@ export class OrdersService {
     }
 
     // Customer stats + loyalty points (only when the order is tied to a customer).
+    // Redemption (deduct) is applied before earning so the balance stays correct
+    // when a customer both redeems and earns on the same order.
     const customerId = dto.customerId;
     if (customerId) {
       const earned = pointsForOrder(total);
-      const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+      const customer = redeemCustomer ?? (await this.prisma.customer.findUnique({ where: { id: customerId } }));
       if (customer) {
         await this.prisma.$transaction(async (tx) => {
-          const newBalance = customer.loyaltyPoints + earned;
+          let balance = customer.loyaltyPoints;
+
+          if (redeemPoints > 0) {
+            balance -= redeemPoints;
+            await tx.loyaltyTransaction.create({
+              data: {
+                customerId,
+                orderId: order.id,
+                type: 'REDEEM',
+                points: -redeemPoints,
+                balanceAfter: balance,
+                note: `استبدال على طلب ${order.orderNumber}`,
+              },
+            });
+          }
+
+          balance += earned;
           await tx.customer.update({
             where: { id: customerId },
             data: {
               totalOrders: { increment: 1 },
               totalSpent: { increment: total },
               lastOrderAt: new Date(),
-              loyaltyPoints: newBalance,
+              loyaltyPoints: balance,
               lifetimePoints: { increment: earned },
             },
           });
@@ -175,7 +221,7 @@ export class OrdersService {
                 orderId: order.id,
                 type: 'EARN',
                 points: earned,
-                balanceAfter: newBalance,
+                balanceAfter: balance,
                 note: `طلب ${order.orderNumber}`,
               },
             });

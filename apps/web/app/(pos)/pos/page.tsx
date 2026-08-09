@@ -90,6 +90,10 @@ const orderTypeLabels: Record<OrderType, string> = {
   DELIVERY: 'توصيل',
 };
 
+// Loyalty redemption rules — mirror apps/api/src/customers/loyalty.config.ts.
+const REDEEM_VALUE_PER_POINT = 0.05; // 100 pts = 5 SAR
+const LOYALTY_MIN_REDEEM = 100;
+
 // --- Clock Component ---
 
 function LiveClock() {
@@ -274,6 +278,7 @@ export default function POSPage() {
   const [customer, setCustomer] = useState<PosCustomer | null>(null);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [discount, setDiscount] = useState(0);
+  const [redeemPoints, setRedeemPoints] = useState(0);
   const [notesItemId, setNotesItemId] = useState<string | null>(null);
 
   // Payment modal
@@ -383,6 +388,7 @@ export default function POSPage() {
   function clearCart() {
     setCart([]);
     setDiscount(0);
+    setRedeemPoints(0);
     setNotesItemId(null);
     setSelectedTable(null);
   }
@@ -395,7 +401,29 @@ export default function POSPage() {
 
   const subtotal = useMemo(() => cart.reduce((sum, c) => sum + c.price * c.quantity, 0), [cart]);
   const vat = useMemo(() => Math.round(subtotal * 0.15 * 100) / 100, [subtotal]);
-  const total = useMemo(() => Math.max(0, Math.round((subtotal + vat - discount) * 100) / 100), [subtotal, vat, discount]);
+
+  // Loyalty redemption: cap by both the customer's balance and the order value
+  // still owed after the manual discount, so a redemption never exceeds the bill.
+  const maxRedeemablePoints = useMemo(() => {
+    if (!customer || typeof customer.loyaltyPoints !== 'number') return 0;
+    const owed = Math.max(0, subtotal + vat - discount);
+    const maxByValue = Math.floor(owed / REDEEM_VALUE_PER_POINT);
+    return Math.min(customer.loyaltyPoints, maxByValue);
+  }, [customer, subtotal, vat, discount]);
+  const canRedeem = maxRedeemablePoints >= LOYALTY_MIN_REDEEM;
+  const redeemValue = useMemo(() => Math.round(redeemPoints * REDEEM_VALUE_PER_POINT * 100) / 100, [redeemPoints]);
+
+  const total = useMemo(
+    () => Math.max(0, Math.round((subtotal + vat - discount - redeemValue) * 100) / 100),
+    [subtotal, vat, discount, redeemValue],
+  );
+
+  // Keep the redemption within bounds as the cart, discount or customer changes.
+  useEffect(() => {
+    if (redeemPoints > maxRedeemablePoints) {
+      setRedeemPoints(maxRedeemablePoints >= LOYALTY_MIN_REDEEM ? maxRedeemablePoints : 0);
+    }
+  }, [maxRedeemablePoints, redeemPoints]);
 
   // --- Payment logic ---
 
@@ -452,6 +480,7 @@ export default function POSPage() {
         tableId: orderType === 'DINE_IN' ? selectedTable : undefined,
         deliverySource: orderType === 'DELIVERY' ? deliverySource : undefined,
         customerId: customer?.id,
+        redeemPoints: customer && redeemPoints > 0 ? redeemPoints : undefined,
         items: cart.map((c) => ({
           menuItemId: c.menuItemId,
           quantity: c.quantity,
@@ -462,7 +491,12 @@ export default function POSPage() {
       // Loyalty earns 1 point per SAR of the order total (see loyalty.config).
       if (customer) {
         const earned = Math.floor(Number(order.total) || total);
-        showToast(`تم — كسب ${customer.name} ${earned} نقطة ولاء`);
+        const redeemed = redeemPoints > 0;
+        showToast(
+          redeemed
+            ? `تم — استبدال ${redeemPoints} نقطة (${formatSAR(redeemValue)} ر.س) · كسب ${earned} نقطة`
+            : `تم — كسب ${customer.name} ${earned} نقطة ولاء`,
+        );
       }
 
       setShowPayment(false);
@@ -937,6 +971,58 @@ export default function POSPage() {
               </div>
             )}
 
+            {/* Loyalty redemption — only when a linked customer has enough points */}
+            {cart.length > 0 && customer && canRedeem && (
+              <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                    <Crown className="w-3.5 h-3.5" />
+                    استبدال نقاط ({customer.loyaltyPoints} متاحة)
+                  </span>
+                  {redeemPoints > 0 && (
+                    <button
+                      onClick={() => setRedeemPoints(0)}
+                      className="text-[11px] text-gray-400 hover:text-rose-500 transition-colors"
+                    >
+                      إلغاء
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[100, 200, 500].filter((p) => p <= maxRedeemablePoints).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setRedeemPoints(redeemPoints === p ? 0 : p)}
+                      className={cn(
+                        'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                        redeemPoints === p
+                          ? 'bg-amber-500 text-white border-amber-500'
+                          : 'bg-white dark:bg-dark-card text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/50 hover:border-amber-400',
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setRedeemPoints(redeemPoints === maxRedeemablePoints ? 0 : maxRedeemablePoints)}
+                    className={cn(
+                      'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                      redeemPoints === maxRedeemablePoints
+                        ? 'bg-amber-500 text-white border-amber-500'
+                        : 'bg-white dark:bg-dark-card text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/50 hover:border-amber-400',
+                    )}
+                  >
+                    الأقصى ({maxRedeemablePoints})
+                  </button>
+                </div>
+                {redeemPoints > 0 && (
+                  <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mt-1.5">
+                    خصم {redeemPoints} نقطة = {formatSAR(redeemValue)} ر.س
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Totals */}
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500 dark:text-gray-400">
@@ -951,6 +1037,12 @@ export default function POSPage() {
                 <div className="flex justify-between text-rose-500">
                   <span>خصم</span>
                   <span>-{formatSAR(discount)} <SARSymbol /></span>
+                </div>
+              )}
+              {redeemValue > 0 && (
+                <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                  <span className="flex items-center gap-1"><Crown className="w-3.5 h-3.5" />استبدال نقاط</span>
+                  <span>-{formatSAR(redeemValue)} <SARSymbol /></span>
                 </div>
               )}
               <div className="flex justify-between text-lg font-bold text-gray-900 dark:text-white pt-1.5 border-t border-gray-200 dark:border-dark-border">

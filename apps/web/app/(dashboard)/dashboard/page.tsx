@@ -1,9 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { DollarSign, ShoppingBag, TrendingUp, Receipt, CalendarDays, CalendarRange, UtensilsCrossed, ShoppingCart, Truck, Moon } from 'lucide-react';
 import StatsCard from '@/components/dashboard/StatsCard';
-import SalesChart from '@/components/charts/SalesChart';
+
+// Defer recharts (~100 kB) until after the dashboard shell + stat cards paint.
+// The chart sits below the fold, so its bundle shouldn't block first render.
+const SalesChart = dynamic(() => import('@/components/charts/SalesChart'), {
+  ssr: false,
+  loading: () => (
+    <div className="glass-card p-6 animate-fade-in-up">
+      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">المبيعات — آخر ٣٠ يوم</h3>
+      <div className="h-80 rounded-xl bg-gray-100 dark:bg-dark-hover animate-pulse" />
+    </div>
+  ),
+});
 import RecentOrders from '@/components/dashboard/RecentOrders';
 import TopItems from '@/components/dashboard/TopItems';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';

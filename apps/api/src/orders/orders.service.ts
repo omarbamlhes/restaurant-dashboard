@@ -4,7 +4,9 @@ import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
 import { OrdersGateway } from './orders.gateway';
 import { CacheService } from '../cache/cache.service';
 import { buildZatcaQR } from '../common/zatca';
-import { pointsForOrder, pointsValue, LOYALTY_MIN_REDEEM } from '../customers/loyalty.config';
+import { pointsForOrder, pointsValue } from '../customers/loyalty.config';
+import { computeOrderTotals } from './order-totals';
+import { WhatsAppService } from '../messaging/whatsapp.service';
 
 @Injectable()
 export class OrdersService {
@@ -12,6 +14,7 @@ export class OrdersService {
     private prisma: PrismaService,
     private ordersGateway: OrdersGateway,
     private cache: CacheService,
+    private whatsapp: WhatsAppService,
   ) {}
 
   private async getBranchIds(restaurantId: string) {
@@ -75,64 +78,28 @@ export class OrdersService {
       };
     });
 
-    const subtotal = itemsData.reduce((s, i) => s + i.totalPrice, 0);
-    const tax = Math.round(subtotal * 0.15 * 100) / 100; // 15% VAT
-    const manualDiscount = dto.discount || 0;
-
-    // Loyalty redemption: validate the balance and convert points to a SAR
-    // discount. Kept alongside the manual discount so the order total already
-    // reflects it; the points are deducted below inside the customer tx.
+    // Loyalty redemption needs the customer's live balance. Fetch it up front so
+    // the (pure) totals calculation can validate the redemption without any I/O.
     const redeemPoints = Math.max(0, Math.floor(dto.redeemPoints || 0));
-    let loyaltyDiscount = 0;
     let redeemCustomer: Awaited<ReturnType<typeof this.prisma.customer.findUnique>> = null;
-    if (redeemPoints > 0) {
-      if (!dto.customerId) {
-        throw new BadRequestException('لا يمكن استبدال النقاط بدون عميل');
-      }
-      if (redeemPoints < LOYALTY_MIN_REDEEM) {
-        throw new BadRequestException(`الحد الأدنى للاستبدال ${LOYALTY_MIN_REDEEM} نقطة`);
-      }
+    if (redeemPoints > 0 && dto.customerId) {
       redeemCustomer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
-      if (!redeemCustomer) {
-        throw new BadRequestException('العميل غير موجود');
-      }
-      if (redeemCustomer.loyaltyPoints < redeemPoints) {
-        throw new BadRequestException('نقاط الولاء غير كافية');
-      }
-      loyaltyDiscount = pointsValue(redeemPoints);
-      if (loyaltyDiscount > subtotal + tax - manualDiscount) {
-        throw new BadRequestException('قيمة النقاط المستبدلة أكبر من إجمالي الطلب');
-      }
     }
 
-    const discount = Math.round((manualDiscount + loyaltyDiscount) * 100) / 100;
-    const total = Math.round((subtotal + tax - discount) * 100) / 100;
+    const totals = computeOrderTotals({
+      items: itemsData,
+      manualDiscount: dto.discount,
+      redeemPoints: dto.redeemPoints,
+      hasCustomer: !!dto.customerId,
+      customerLoyaltyPoints: redeemPoints > 0 ? redeemCustomer?.loyaltyPoints ?? null : null,
+      paymentMethod: dto.paymentMethod,
+      paidAmount: dto.paidAmount,
+      cashAmount: dto.cashAmount,
+      cardAmount: dto.cardAmount,
+    });
 
-    // Payment validation
+    const { subtotal, tax, discount, total, cashAmount, cardAmount, changeAmount } = totals;
     const paidAmount = dto.paidAmount;
-    if (paidAmount < total) {
-      throw new BadRequestException('المبلغ المدفوع لا يغطي الإجمالي');
-    }
-
-    let cashAmount = 0;
-    let cardAmount = 0;
-    let changeAmount = 0;
-
-    if (dto.paymentMethod === 'CASH') {
-      cashAmount = paidAmount;
-      changeAmount = Math.round((paidAmount - total) * 100) / 100;
-    } else if (dto.paymentMethod === 'SPLIT') {
-      cashAmount = dto.cashAmount || 0;
-      cardAmount = dto.cardAmount || 0;
-      if (Math.round((cashAmount + cardAmount) * 100) < Math.round(total * 100)) {
-        throw new BadRequestException('مجموع الدفع المقسم لا يغطي الإجمالي');
-      }
-      changeAmount = Math.round((cashAmount + cardAmount - total) * 100) / 100;
-    } else {
-      // Card, Mada, STC Pay, Apple Pay, Tabby, Tamara — cashless, paid in full,
-      // no change. cardAmount tracks the non-cash settled total.
-      cardAmount = total;
-    }
 
     // Table validation for dine-in
     if (dto.type === 'DINE_IN' && dto.tableId) {
@@ -252,11 +219,24 @@ export class OrdersService {
       where: { id },
       data: { status: dto.status },
       include: {
-        branch: { select: { nameAr: true } },
+        branch: { select: { nameAr: true, restaurant: { select: { nameAr: true } } } },
         table: { select: { number: true, nameAr: true } },
+        customer: { select: { name: true, phone: true } },
         items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
       },
     });
+
+    // Notify the customer on WhatsApp when their order is ready (best-effort).
+    if (dto.status === 'READY' && order.customer?.phone) {
+      await this.whatsapp.sendOrderReady({
+        restaurantId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customer.name,
+        rawPhone: order.customer.phone,
+        restaurantName: order.branch?.restaurant?.nameAr || 'مطعمنا',
+      });
+    }
 
     // Sync item station statuses when order status is manually set
     if (dto.status === 'READY' || dto.status === 'COMPLETED') {

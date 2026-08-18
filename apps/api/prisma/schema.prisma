@@ -571,3 +571,38 @@ enum NotificationType {
   PAYMENT_DUE
   SYSTEM
 }
+
+// ============ OUTBOUND CUSTOMER MESSAGING ============
+// Every WhatsApp/SMS message we attempt to send is recorded here so staff can
+// see delivery status and so the flow is verifiable in dev with the mock driver.
+model MessageLog {
+  id           String        @id @default(cuid())
+  restaurantId String
+  channel      MessageChannel @default(WHATSAPP)
+  event        String        // ORDER_READY | RESERVATION_CONFIRMED
+  toPhone      String        // E.164
+  body         String
+  status       MessageStatus @default(PENDING)
+  provider     String        @default("mock")
+  providerId   String?       // provider-side message id, when available
+  error        String?
+  orderId      String?
+  reservationId String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([restaurantId, createdAt])
+  @@index([status])
+}
+
+enum MessageChannel {
+  WHATSAPP
+  SMS
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}

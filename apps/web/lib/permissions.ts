@@ -80,6 +80,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/analytics': 'analytics',
   '/inventory': 'inventory',
   '/customers': 'customers',
+  '/messages': 'customers',
   '/tables': 'tables',
   '/branches': 'branches',
   '/employees': 'employees',

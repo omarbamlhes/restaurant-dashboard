@@ -16,6 +16,7 @@ import {
   FileText,
   Settings,
   Bell,
+  MessageCircle,
   ChevronLeft,
   Monitor,
   ChefHat,
@@ -61,6 +62,7 @@ const navGroups: NavGroup[] = [
     title: 'الإدارة',
     items: [
       { href: '/customers', label: 'العملاء', icon: UserCircle, permission: 'customers' },
+      { href: '/messages', label: 'الرسائل', icon: MessageCircle, permission: 'customers' },
       { href: '/employees', label: 'الموظفين', icon: Users, permission: 'employees' },
       { href: '/branches', label: 'الفروع', icon: Building2, permission: 'branches' },
     ],

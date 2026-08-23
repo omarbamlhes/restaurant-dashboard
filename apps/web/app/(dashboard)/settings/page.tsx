@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Settings, User, Building2, Lock, Save, Users, Plus, X, Shield, Pencil, Trash2, CreditCard } from 'lucide-react';
+import { Settings, User, Building2, Lock, Save, Users, Plus, X, Shield, Pencil, Trash2, CreditCard, CheckCircle2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { ALL_PERMISSIONS } from '@/lib/permissions';
+import { isValidSaudiTaxNumber } from '@/lib/zatca';
 
 type Tab = 'profile' | 'restaurant' | 'security' | 'accounts';
 
@@ -137,6 +138,11 @@ export default function SettingsPage() {
   }
 
   async function saveRestaurant() {
+    const taxNum = restaurantForm.taxNumber.trim();
+    if (taxNum && !isValidSaudiTaxNumber(taxNum)) {
+      toast.error('الرقم الضريبي غير صحيح — 15 رقمًا يبدأ وينتهي بالرقم 3');
+      return;
+    }
     setSaving(true);
     try {
       const { data } = await api.put('/auth/restaurant', restaurantForm);
@@ -321,18 +327,58 @@ export default function SettingsPage() {
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">بريد المطعم</label>
                   <input type="email" value={restaurantForm.email} onChange={(e) => setRestaurantForm((f) => ({ ...f, email: e.target.value }))} className="input-field text-sm" dir="ltr" placeholder="info@restaurant.com" />
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">الرقم الضريبي (VAT)</label>
-                  <input value={restaurantForm.taxNumber} onChange={(e) => setRestaurantForm((f) => ({ ...f, taxNumber: e.target.value }))} className="input-field text-sm" dir="ltr" placeholder="300000000000003" />
-                  <p className="text-xs text-gray-400 mt-1">يظهر في الفواتير ورمز QR حسب متطلبات ZATCA</p>
-                </div>
+                {(() => {
+                  const taxNum = restaurantForm.taxNumber.trim();
+                  const taxValid = isValidSaudiTaxNumber(taxNum);
+                  const taxInvalid = taxNum.length > 0 && !taxValid;
+                  return (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">الرقم الضريبي (VAT)</label>
+                      <div className="relative">
+                        <input
+                          value={restaurantForm.taxNumber}
+                          onChange={(e) => setRestaurantForm((f) => ({ ...f, taxNumber: e.target.value.replace(/\s/g, '') }))}
+                          inputMode="numeric"
+                          maxLength={15}
+                          className={cn(
+                            'input-field text-sm pl-9',
+                            taxInvalid && 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20',
+                            taxValid && 'border-emerald-400 focus:border-emerald-500 focus:ring-emerald-500/20',
+                          )}
+                          dir="ltr"
+                          placeholder="300000000000003"
+                          aria-invalid={taxInvalid}
+                        />
+                        {taxValid && (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        )}
+                        {taxInvalid && (
+                          <AlertCircle className="w-4 h-4 text-rose-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        )}
+                      </div>
+                      {taxInvalid ? (
+                        <p className="text-xs text-rose-500 mt-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          يجب أن يكون 15 رقمًا يبدأ وينتهي بالرقم 3 ({taxNum.length}/15)
+                        </p>
+                      ) : taxValid ? (
+                        <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-1 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          رقم ضريبي صالح — سيظهر في رمز QR للفاتورة
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 mt-1">يظهر في الفواتير ورمز QR حسب متطلبات ZATCA</p>
+                      )}
+                    </div>
+                  );
+                })()}
                 {restaurant && (
                   <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 pt-2">
                     <span>العملة: <span className="font-medium text-gray-700 dark:text-gray-300">{restaurant.currency}</span></span>
                     <span>المنطقة الزمنية: <span className="font-medium text-gray-700 dark:text-gray-300">{restaurant.timezone}</span></span>
                   </div>
                 )}
-                <button onClick={saveRestaurant} disabled={saving || !restaurantForm.nameAr || !restaurantForm.name} className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50">
+                <button onClick={saveRestaurant} disabled={saving || !restaurantForm.nameAr || !restaurantForm.name || (restaurantForm.taxNumber.trim().length > 0 && !isValidSaudiTaxNumber(restaurantForm.taxNumber.trim()))} className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50">
                   <Save className="w-4 h-4" />
                   {saving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
                 </button>

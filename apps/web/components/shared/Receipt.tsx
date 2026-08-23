@@ -6,6 +6,7 @@ import { Printer, X } from 'lucide-react';
 import { formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 import { paymentLabel } from '@/lib/payment-methods';
+import { buildZatcaQR } from '@/lib/zatca';
 
 interface ReceiptItem {
   id: string;
@@ -57,48 +58,6 @@ const typeLabels: Record<string, string> = {
   DELIVERY: 'توصيل',
 };
 
-// ZATCA TLV encoding for simplified tax invoice QR
-function buildZatcaQR(data: {
-  sellerName: string;
-  taxNumber: string;
-  timestamp: string;
-  totalWithVat: string;
-  vatAmount: string;
-}): string {
-  function tlv(tag: number, value: string): Uint8Array {
-    const encoder = new TextEncoder();
-    const valueBytes = encoder.encode(value);
-    const result = new Uint8Array(2 + valueBytes.length);
-    result[0] = tag;
-    result[1] = valueBytes.length;
-    result.set(valueBytes, 2);
-    return result;
-  }
-
-  const parts = [
-    tlv(1, data.sellerName),
-    tlv(2, data.taxNumber),
-    tlv(3, data.timestamp),
-    tlv(4, data.totalWithVat),
-    tlv(5, data.vatAmount),
-  ];
-
-  const totalLength = parts.reduce((s, p) => s + p.length, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const part of parts) {
-    combined.set(part, offset);
-    offset += part.length;
-  }
-
-  // Base64 encode
-  let binary = '';
-  for (let i = 0; i < combined.length; i++) {
-    binary += String.fromCharCode(combined[i]);
-  }
-  return btoa(binary);
-}
-
 export default function Receipt({ order, onClose }: { order: ReceiptData; onClose: () => void }) {
   const receiptRef = useRef<HTMLDivElement>(null);
 
@@ -118,9 +77,9 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
       ? buildZatcaQR({
           sellerName: restaurant.nameAr,
           taxNumber: restaurant.taxNumber!,
-          timestamp: new Date(order.createdAt).toISOString(),
-          totalWithVat: Number(order.total).toFixed(2),
-          vatAmount: Number(order.tax).toFixed(2),
+          timestamp: order.createdAt,
+          totalWithVat: order.total,
+          vatAmount: order.tax,
         })
       : null);
 

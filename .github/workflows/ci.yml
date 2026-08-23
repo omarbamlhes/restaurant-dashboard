@@ -60,6 +60,9 @@ jobs:
       - name: Run API tests
         run: pnpm --filter @app/api run test
 
+      - name: Run Web tests
+        run: pnpm --filter @app/web run test
+
       - name: Build API
         run: pnpm --filter @app/api run build
 

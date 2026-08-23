@@ -7,6 +7,7 @@ import {
   PAUSING_PRAYERS,
   DEFAULT_COORDS,
 } from '../common/prayer-times';
+import { computeItemCosting } from '../menu/recipe-cost';
 
 const ANALYTICS_TTL = 60; // seconds — dashboards poll frequently; 60s is fresh enough
 
@@ -284,30 +285,69 @@ export class AnalyticsService {
     }));
   }
 
-  private async _getProfitMargins(restaurantId: string, branchId?: string) {
-    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+  /**
+   * Map of menuItemId → its effective unit cost, recipe-derived where a recipe
+   * exists (Σ ingredient qty × unit cost) and falling back to the hand-entered
+   * cost otherwise. Central so profit and branch reports cost sales the same
+   * way the menu screen does.
+   */
+  private async getEffectiveCostMap(restaurantId: string): Promise<Map<string, number>> {
     const items = await this.prisma.menuItem.findMany({
-      where: { restaurantId, isActive: true },
-      include: {
-        orderItems: {
-          where: { order: { branchId: { in: branchIds } } },
-          select: { quantity: true, totalPrice: true },
-        },
-        category: { select: { nameAr: true } },
+      where: { restaurantId },
+      select: {
+        id: true,
+        price: true,
+        cost: true,
+        ingredients: { select: { quantity: true, ingredient: { select: { costPerUnit: true } } } },
       },
     });
+    return new Map(
+      items.map((item) => {
+        const recipe = item.ingredients.map((mi) => ({
+          quantity: Number(mi.quantity),
+          costPerUnit: Number(mi.ingredient.costPerUnit),
+        }));
+        const { effectiveCost } = computeItemCosting({
+          price: Number(item.price),
+          cost: item.cost != null ? Number(item.cost) : null,
+          recipe,
+        });
+        return [item.id, effectiveCost ?? 0];
+      }),
+    );
+  }
+
+  private async _getProfitMargins(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+    const [items, costMap] = await Promise.all([
+      this.prisma.menuItem.findMany({
+        where: { restaurantId, isActive: true },
+        include: {
+          orderItems: {
+            where: { order: { branchId: { in: branchIds } } },
+            select: { quantity: true, totalPrice: true },
+          },
+          category: { select: { nameAr: true } },
+        },
+      }),
+      this.getEffectiveCostMap(restaurantId),
+    ]);
 
     return items.map((item) => {
       const totalSold = item.orderItems.reduce((s, oi) => s + oi.quantity, 0);
       const totalRevenue = item.orderItems.reduce((s, oi) => s + Number(oi.totalPrice), 0);
-      const unitCost = Number(item.cost || 0);
+      const unitCost = costMap.get(item.id) ?? Number(item.cost || 0);
       const unitPrice = Number(item.price);
       const profitPerItem = unitPrice - unitCost;
       const margin = unitPrice > 0 ? (profitPerItem / unitPrice) * 100 : 0;
+      const foodCostPct = unitPrice > 0 ? (unitCost / unitPrice) * 100 : 0;
       return {
         id: item.id, nameAr: item.nameAr, category: item.category.nameAr,
-        unitPrice, unitCost, profitPerItem: Math.round(profitPerItem * 100) / 100,
-        margin: Math.round(margin * 10) / 10, totalSold, totalRevenue: Math.round(totalRevenue * 100) / 100,
+        unitPrice, unitCost: Math.round(unitCost * 100) / 100,
+        profitPerItem: Math.round(profitPerItem * 100) / 100,
+        margin: Math.round(margin * 10) / 10,
+        foodCostPct: Math.round(foodCostPct * 10) / 10,
+        totalSold, totalRevenue: Math.round(totalRevenue * 100) / 100,
       };
     }).sort((a, b) => b.margin - a.margin);
   }
@@ -320,19 +360,20 @@ export class AnalyticsService {
       orderBy: { isMain: 'desc' },
     });
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const costMap = await this.getEffectiveCostMap(restaurantId);
 
     const results = await Promise.all(
       branches.map(async (b) => {
         const orders = await this.prisma.order.findMany({
           where: { branchId: b.id, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
-          include: { items: { include: { menuItem: { select: { cost: true } } } } },
+          include: { items: { select: { menuItemId: true, quantity: true } } },
         });
 
         const revenue = orders.reduce((s, o) => s + Number(o.total), 0);
         let cost = 0;
         for (const o of orders) {
           for (const item of o.items) {
-            cost += Number(item.menuItem.cost || 0) * item.quantity;
+            cost += (costMap.get(item.menuItemId) ?? 0) * item.quantity;
           }
         }
         const profit = revenue - cost;

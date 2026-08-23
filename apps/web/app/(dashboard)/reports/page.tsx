@@ -28,6 +28,7 @@ interface ProfitItem {
   unitCost: number;
   profitPerItem: number;
   margin: number;
+  foodCostPct: number;
   totalSold: number;
   totalRevenue: number;
 }
@@ -152,9 +153,9 @@ export default function ReportsPage() {
       rows = sales.map((r) => [r.date, r.revenue, r.orders, r.avgOrder]);
     } else if (tab === 'profit') {
       tabName = 'الأرباح';
-      headers = ['الصنف', 'الفئة', 'السعر', 'التكلفة', 'الربح/وحدة', 'الهامش %', 'مبيعات', 'إجمالي الإيرادات', 'إجمالي الربح'];
+      headers = ['الصنف', 'الفئة', 'السعر', 'التكلفة', 'تكلفة الطعام %', 'الربح/وحدة', 'الهامش %', 'مبيعات', 'إجمالي الإيرادات', 'إجمالي الربح'];
       rows = profits.map((p) => [
-        p.nameAr, p.category, p.unitPrice, p.unitCost, p.profitPerItem, p.margin, p.totalSold, p.totalRevenue,
+        p.nameAr, p.category, p.unitPrice, p.unitCost, p.foodCostPct, p.profitPerItem, p.margin, p.totalSold, p.totalRevenue,
         Math.round(p.profitPerItem * p.totalSold * 100) / 100,
       ]);
     } else if (tab === 'peak') {
@@ -422,11 +423,42 @@ export default function ReportsPage() {
       )}
 
       {/* Profit Report */}
-      {tab === 'profit' && (
-        <div className="glass-card overflow-hidden animate-fade-in-up print:shadow-none print:border">
+      {tab === 'profit' && (() => {
+        const soldItems = profits.filter((p) => p.totalSold > 0);
+        const totalRevenue = soldItems.reduce((s, p) => s + p.totalRevenue, 0);
+        const totalFoodCost = soldItems.reduce((s, p) => s + p.unitCost * p.totalSold, 0);
+        const foodCostPct = totalRevenue > 0 ? (totalFoodCost / totalRevenue) * 100 : 0;
+        const grossMargin = totalRevenue > 0 ? ((totalRevenue - totalFoodCost) / totalRevenue) * 100 : 0;
+        const worst = [...soldItems].sort((a, b) => b.foodCostPct - a.foodCostPct)[0];
+        const fcColor = (v: number) => (v <= 35 ? 'text-emerald-600 dark:text-emerald-400' : v <= 45 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400');
+        return (
+        <div className="space-y-4">
+          {/* Restaurant-level food-cost summary */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in-up">
+            <div className="glass-card p-5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">إجمالي الإيرادات</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">{formatSAR(totalRevenue)} <SARSymbol /></p>
+            </div>
+            <div className="glass-card p-5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">تكلفة الطعام</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">{formatSAR(totalFoodCost)} <SARSymbol /></p>
+            </div>
+            <div className="glass-card p-5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">نسبة تكلفة الطعام</p>
+              <p className={cn('text-xl font-bold tabular-nums', fcColor(foodCostPct))}>{foodCostPct.toFixed(1)}%</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">المستهدف 28–35%</p>
+            </div>
+            <div className="glass-card p-5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">هامش الربح الإجمالي</p>
+              <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{grossMargin.toFixed(1)}%</p>
+              {worst && <p className="text-[11px] text-gray-400 mt-0.5 truncate">الأعلى تكلفة: {worst.nameAr} ({worst.foodCostPct}%)</p>}
+            </div>
+          </div>
+
+          <div className="glass-card overflow-hidden print:shadow-none print:border">
           <div className="p-6 pb-4">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">تقرير الأرباح حسب الصنف</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">تحليل ربحية كل صنف في القائمة</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">تحليل ربحية كل صنف في القائمة — التكلفة محسوبة من الوصفة عند توفرها</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -437,6 +469,7 @@ export default function ReportsPage() {
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الفئة</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">السعر</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">التكلفة</th>
+                  <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">تكلفة الطعام</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الربح/وحدة</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">الهامش</th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 p-4">مبيعات</th>
@@ -456,6 +489,7 @@ export default function ReportsPage() {
                     </td>
                     <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(item.unitPrice)} <SARSymbol /></td>
                     <td className="p-4 text-sm text-gray-700 dark:text-gray-300">{formatSAR(item.unitCost)} <SARSymbol /></td>
+                    <td className={cn('p-4 text-sm font-medium', item.foodCostPct <= 35 ? 'text-emerald-600 dark:text-emerald-400' : item.foodCostPct <= 45 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400')}>{item.foodCostPct}%</td>
                     <td className="p-4 text-sm font-medium text-emerald-600 dark:text-emerald-400">{formatSAR(item.profitPerItem)} <SARSymbol /></td>
                     <td className="p-4">
                       <div className="flex items-center gap-2">
@@ -480,8 +514,10 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+          </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Peak Hours Report */}
       {tab === 'peak' && (

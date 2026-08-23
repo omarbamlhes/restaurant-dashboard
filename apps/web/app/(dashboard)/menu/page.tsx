@@ -26,6 +26,15 @@ interface KitchenStation {
   _count: { menuItems: number };
 }
 
+interface RecipeLine {
+  ingredientId: string;
+  nameAr: string;
+  unit: string;
+  quantity: number;
+  costPerUnit: number;
+  lineCost: number;
+}
+
 interface MenuItem {
   id: string;
   name: string;
@@ -38,6 +47,12 @@ interface MenuItem {
   isActive: boolean;
   category: { id: string; nameAr: string };
   station?: { id: string; nameAr: string; color: string } | null;
+  // Recipe-derived costing computed by the API.
+  recipe?: RecipeLine[];
+  recipeCost?: number | null;
+  effectiveCost?: number | null;
+  margin?: number | null;
+  foodCostPct?: number | null;
 }
 
 const emptyForm = {
@@ -334,7 +349,15 @@ export default function MenuPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.map((item) => {
-            const margin = item.cost ? ((Number(item.price) - Number(item.cost)) / Number(item.price)) * 100 : null;
+            // Prefer the API's recipe-derived numbers; fall back for older payloads.
+            const cost = item.effectiveCost ?? (item.cost != null ? Number(item.cost) : null);
+            const margin = item.margin ?? (cost != null && Number(item.price) > 0
+              ? ((Number(item.price) - cost) / Number(item.price)) * 100
+              : null);
+            const foodCostPct = item.foodCostPct ?? (cost != null && Number(item.price) > 0
+              ? (cost / Number(item.price)) * 100
+              : null);
+            const fromRecipe = item.recipeCost != null;
             return (
               <div key={item.id} className="glass-card p-5 animate-fade-in-up hover:shadow-lg transition-all duration-300">
                 {/* Category + Station badges */}
@@ -380,9 +403,28 @@ export default function MenuPage() {
                   )}
                 </div>
 
-                {/* Margin bar */}
+                {/* Cost + margin (recipe-derived when the item has a recipe) */}
                 {margin !== null && (
                   <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <div className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                        <span>التكلفة {cost != null ? formatSAR(cost) : '—'}</span>
+                        {fromRecipe && (
+                          <span
+                            title="محسوبة تلقائياً من مكونات الوصفة"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-400 font-medium"
+                          >
+                            <ChefHat className="w-3 h-3" />
+                            من الوصفة
+                          </span>
+                        )}
+                      </div>
+                      {foodCostPct !== null && (
+                        <span className="text-gray-500 dark:text-gray-400">
+                          تكلفة الطعام <span className={cn('font-medium', foodCostPct <= 35 ? 'text-emerald-600' : foodCostPct <= 45 ? 'text-amber-600' : 'text-rose-600')}>{foodCostPct.toFixed(0)}%</span>
+                        </span>
+                      )}
+                    </div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-gray-500 dark:text-gray-400">هامش الربح</span>
                       <span className={cn('font-medium', margin >= 50 ? 'text-emerald-600' : margin >= 30 ? 'text-amber-600' : 'text-rose-600')}>
@@ -392,7 +434,7 @@ export default function MenuPage() {
                     <div className="w-full h-1.5 bg-gray-100 dark:bg-dark-hover rounded-full overflow-hidden">
                       <div
                         className={cn('h-full rounded-full transition-all', margin >= 50 ? 'bg-emerald-500' : margin >= 30 ? 'bg-amber-500' : 'bg-rose-500')}
-                        style={{ width: `${Math.min(margin, 100)}%` }}
+                        style={{ width: `${Math.min(Math.max(margin, 0), 100)}%` }}
                       />
                     </div>
                   </div>

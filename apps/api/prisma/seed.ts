@@ -415,6 +415,51 @@ async function main() {
     createdIngredients.push(created);
   }
 
+  // ============ RECIPES (menu item → ingredients) ============
+  // Drives recipe-based food costing: each item's cost is computed from what
+  // its ingredients actually cost, so margins stay accurate as prices move.
+  console.log('🧾 Linking recipes...');
+
+  const ingByAr = Object.fromEntries(
+    createdIngredients.map((i) => [i.nameAr, i]),
+  );
+  const itemByAr = Object.fromEntries(menuItems.map((m) => [m.nameAr, m]));
+
+  // [itemNameAr]: [[ingredientNameAr, quantityInIngredientUnit], ...]
+  const recipes: Record<string, [string, number][]> = {
+    'شاورما دجاج': [['دجاج', 0.2], ['خبز عربي', 1], ['ثوم', 0.02], ['طحينة', 0.03], ['بصل', 0.03]],
+    'شاورما لحم': [['لحم بقر', 0.2], ['خبز عربي', 1], ['ثوم', 0.02], ['طحينة', 0.03], ['بصل', 0.03]],
+    'صحن شاورما': [['دجاج', 0.25], ['أرز بسمتي', 0.2], ['طحينة', 0.04], ['بصل', 0.05], ['طماطم', 0.05]],
+    'شاورما عربي': [['دجاج', 0.15], ['خبز عربي', 1], ['ثوم', 0.02], ['بصل', 0.02]],
+    'مشكل مشويات': [['لحم غنم', 0.25], ['دجاج', 0.2], ['لحم بقر', 0.15], ['بهارات مشكلة', 0.02], ['بصل', 0.05]],
+    'تكا دجاج': [['دجاج', 0.35], ['لبن', 0.05], ['بهارات مشكلة', 0.02], ['ثوم', 0.02]],
+    'كباب': [['لحم بقر', 0.3], ['بصل', 0.05], ['بهارات مشكلة', 0.02]],
+    'كبسة': [['دجاج', 0.3], ['أرز بسمتي', 0.25], ['طماطم', 0.1], ['بصل', 0.05], ['بهارات مشكلة', 0.02]],
+    'مندي': [['لحم غنم', 0.3], ['أرز بسمتي', 0.25], ['بهارات مشكلة', 0.02], ['بصل', 0.05]],
+    'برياني': [['دجاج', 0.25], ['أرز بسمتي', 0.25], ['لبن', 0.05], ['بهارات مشكلة', 0.02], ['بصل', 0.05]],
+    'حمص': [['حمص', 0.15], ['طحينة', 0.05], ['ثوم', 0.01], ['ليمون', 0.02]],
+    'فتوش': [['طماطم', 0.1], ['خبز عربي', 1], ['بصل', 0.03], ['ليمون', 0.02]],
+    'فلافل': [['حمص', 0.12], ['ثوم', 0.02], ['بصل', 0.03], ['زيت طبخ', 0.05]],
+    'متبل': [['طحينة', 0.05], ['ثوم', 0.01], ['ليمون', 0.02], ['زيت طبخ', 0.02]],
+    'ليمون طازج': [['ليمون', 0.15], ['سكر', 0.03]],
+    'قهوة عربية': [['بن قهوة', 0.015]],
+    'شاي': [['سكر', 0.02]],
+    'كنافة': [['جبنة', 0.1], ['سكر', 0.05], ['دقيق', 0.05]],
+    'بسبوسة': [['دقيق', 0.08], ['سكر', 0.05], ['لبن', 0.03]],
+  };
+
+  for (const [itemAr, lines] of Object.entries(recipes)) {
+    const item = itemByAr[itemAr];
+    if (!item) continue;
+    for (const [ingAr, quantity] of lines) {
+      const ing = ingByAr[ingAr];
+      if (!ing) continue;
+      await prisma.menuItemIngredient.create({
+        data: { menuItemId: item.id, ingredientId: ing.id, quantity },
+      });
+    }
+  }
+
   // Inventory logs
   const logTypes: InventoryAction[] = ['PURCHASE', 'CONSUMED', 'WASTED'];
   for (const ing of createdIngredients) {

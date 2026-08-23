@@ -6,6 +6,7 @@ import { CacheService } from '../cache/cache.service';
 import { buildZatcaQR } from '../common/zatca';
 import { pointsForOrder, pointsValue } from '../customers/loyalty.config';
 import { computeOrderTotals } from './order-totals';
+import { computeIngredientUsage } from './inventory-deduction';
 import { WhatsAppService } from '../messaging/whatsapp.service';
 
 @Injectable()
@@ -64,6 +65,7 @@ export class OrdersService {
   async create(restaurantId: string, dto: CreateOrderDto) {
     const menuItems = await this.prisma.menuItem.findMany({
       where: { id: { in: dto.items.map((i) => i.menuItemId) } },
+      include: { ingredients: { select: { ingredientId: true, quantity: true } } },
     });
 
     const itemsData = dto.items.map((item) => {
@@ -197,10 +199,57 @@ export class OrdersService {
       }
     }
 
+    // Draw the sold items' ingredients down from stock, by recipe. Stock
+    // tracking must never block a sale, so this is best-effort and isolated.
+    await this.deductRecipeStock(order.id, dto.branchId, dto.items, menuItems);
+
     this.ordersGateway.emitNewOrder(restaurantId, order);
     this.cache.invalidate(`analytics:${restaurantId}:*`);
 
     return order;
+  }
+
+  /**
+   * Decrement ingredient stock for a placed order according to each item's
+   * recipe, recording a CONSUMED inventory log per ingredient. Any failure is
+   * swallowed (logged) — a stock hiccup can't be allowed to fail the order.
+   */
+  private async deductRecipeStock(
+    orderId: string,
+    branchId: string,
+    orderItems: { menuItemId: string; quantity: number }[],
+    menuItems: { id: string; ingredients: { ingredientId: string; quantity: any }[] }[],
+  ) {
+    try {
+      const recipeByMenuItem: Record<string, { ingredientId: string; quantity: any }[]> =
+        Object.fromEntries(menuItems.map((m) => [m.id, m.ingredients]));
+
+      const usage = computeIngredientUsage(
+        orderItems.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+        recipeByMenuItem,
+      );
+      if (usage.length === 0) return;
+
+      await this.prisma.$transaction(
+        usage.flatMap((u) => [
+          this.prisma.ingredient.update({
+            where: { id: u.ingredientId },
+            data: { currentStock: { decrement: u.quantity } },
+          }),
+          this.prisma.inventoryLog.create({
+            data: {
+              ingredientId: u.ingredientId,
+              branchId,
+              type: 'CONSUMED',
+              quantity: u.quantity,
+              note: `استهلاك تلقائي — طلب ${orderId.slice(-6)}`,
+            },
+          }),
+        ]),
+      );
+    } catch (err) {
+      console.error(`[orders] recipe stock deduction failed for order ${orderId}:`, err);
+    }
   }
 
   async findOne(id: string, restaurantId: string) {

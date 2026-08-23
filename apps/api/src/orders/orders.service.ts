@@ -263,7 +263,7 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, restaurantId: string, dto: UpdateStatusDto) {
-    await this.findOne(id, restaurantId);
+    const existing = await this.findOne(id, restaurantId);
     const order = await this.prisma.order.update({
       where: { id },
       data: { status: dto.status },
@@ -315,11 +315,65 @@ export class OrdersService {
       }
     }
 
+    // Return the recipe's ingredients to stock when an order is cancelled —
+    // create() drew them down, so a cancellation must put them back. Guard on
+    // the previous status so a repeated CANCELLED update can't double-restock.
+    if (dto.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
+      await this.restockRecipeStock(order.id, order.branchId);
+    }
+
     this.ordersGateway.emitOrderStatusChanged(restaurantId, order);
     // A cancelled/uncancelled order changes revenue, so drop cached analytics.
     this.cache.invalidate(`analytics:${restaurantId}:*`);
 
     return order;
+  }
+
+  /**
+   * Reverse an order's recipe stock draw-down (used on cancellation): add each
+   * ingredient back and log an ADJUSTMENT. Best-effort and isolated, mirroring
+   * deductRecipeStock — a stock hiccup must not fail the status change.
+   */
+  private async restockRecipeStock(orderId: string, branchId: string) {
+    try {
+      const items = await this.prisma.orderItem.findMany({
+        where: { orderId },
+        select: {
+          menuItemId: true,
+          quantity: true,
+          menuItem: { select: { ingredients: { select: { ingredientId: true, quantity: true } } } },
+        },
+      });
+
+      const recipeByMenuItem: Record<string, { ingredientId: string; quantity: any }[]> =
+        Object.fromEntries(items.map((i) => [i.menuItemId, i.menuItem.ingredients]));
+
+      const usage = computeIngredientUsage(
+        items.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+        recipeByMenuItem,
+      );
+      if (usage.length === 0) return;
+
+      await this.prisma.$transaction(
+        usage.flatMap((u) => [
+          this.prisma.ingredient.update({
+            where: { id: u.ingredientId },
+            data: { currentStock: { increment: u.quantity } },
+          }),
+          this.prisma.inventoryLog.create({
+            data: {
+              ingredientId: u.ingredientId,
+              branchId,
+              type: 'ADJUSTMENT',
+              quantity: u.quantity,
+              note: `إرجاع مخزون — إلغاء طلب ${orderId.slice(-6)}`,
+            },
+          }),
+        ]),
+      );
+    } catch (err) {
+      console.error(`[orders] restock on cancel failed for order ${orderId}:`, err);
+    }
   }
 
   async findOneForReceipt(id: string, restaurantId: string) {

@@ -1,6 +1,6 @@
 import { IsString, IsEnum, IsOptional, IsNumber, IsArray, ValidateNested, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderType, OrderStatus, PaymentMethod } from '@prisma/client';
+import { OrderType, OrderStatus, PaymentMethod, DeliverySource } from '@prisma/client';
 
 class OrderItemDto {
   @IsString()
@@ -37,6 +37,17 @@ export class CreateOrderDto {
 
   @IsOptional() @IsString()
   tableId?: string;
+
+  @IsOptional() @IsString()
+  customerId?: string;
+
+  // Loyalty points the customer redeems against this order (deducted from their
+  // balance, converted to a SAR discount). Requires customerId.
+  @IsOptional() @IsInt()
+  redeemPoints?: number;
+
+  @IsOptional() @IsEnum(DeliverySource)
+  deliverySource?: DeliverySource;
 
   @IsArray()
   @ValidateNested({ each: true })

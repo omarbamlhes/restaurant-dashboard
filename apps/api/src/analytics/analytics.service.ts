@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
+import {
+  getPrayerTimes,
+  PRAYER_LABELS_AR,
+  PAUSING_PRAYERS,
+  DEFAULT_COORDS,
+} from '../common/prayer-times';
+import { computeItemCosting } from '../menu/recipe-cost';
 
 const ANALYTICS_TTL = 60; // seconds — dashboards poll frequently; 60s is fresh enough
 
@@ -59,6 +66,14 @@ export class AnalyticsService {
       `analytics:${restaurantId}:insights:${branchId || 'all'}`,
       ANALYTICS_TTL,
       () => this._getInsights(restaurantId, branchId),
+    );
+  }
+
+  getPrayerGap(restaurantId: string, branchId?: string) {
+    return this.cache.wrap(
+      `analytics:${restaurantId}:prayer-gap:${branchId || 'all'}`,
+      ANALYTICS_TTL,
+      () => this._getPrayerGap(restaurantId, branchId),
     );
   }
 
@@ -270,30 +285,69 @@ export class AnalyticsService {
     }));
   }
 
-  private async _getProfitMargins(restaurantId: string, branchId?: string) {
-    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+  /**
+   * Map of menuItemId → its effective unit cost, recipe-derived where a recipe
+   * exists (Σ ingredient qty × unit cost) and falling back to the hand-entered
+   * cost otherwise. Central so profit and branch reports cost sales the same
+   * way the menu screen does.
+   */
+  private async getEffectiveCostMap(restaurantId: string): Promise<Map<string, number>> {
     const items = await this.prisma.menuItem.findMany({
-      where: { restaurantId, isActive: true },
-      include: {
-        orderItems: {
-          where: { order: { branchId: { in: branchIds } } },
-          select: { quantity: true, totalPrice: true },
-        },
-        category: { select: { nameAr: true } },
+      where: { restaurantId },
+      select: {
+        id: true,
+        price: true,
+        cost: true,
+        ingredients: { select: { quantity: true, ingredient: { select: { costPerUnit: true } } } },
       },
     });
+    return new Map(
+      items.map((item) => {
+        const recipe = item.ingredients.map((mi) => ({
+          quantity: Number(mi.quantity),
+          costPerUnit: Number(mi.ingredient.costPerUnit),
+        }));
+        const { effectiveCost } = computeItemCosting({
+          price: Number(item.price),
+          cost: item.cost != null ? Number(item.cost) : null,
+          recipe,
+        });
+        return [item.id, effectiveCost ?? 0];
+      }),
+    );
+  }
+
+  private async _getProfitMargins(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+    const [items, costMap] = await Promise.all([
+      this.prisma.menuItem.findMany({
+        where: { restaurantId, isActive: true },
+        include: {
+          orderItems: {
+            where: { order: { branchId: { in: branchIds } } },
+            select: { quantity: true, totalPrice: true },
+          },
+          category: { select: { nameAr: true } },
+        },
+      }),
+      this.getEffectiveCostMap(restaurantId),
+    ]);
 
     return items.map((item) => {
       const totalSold = item.orderItems.reduce((s, oi) => s + oi.quantity, 0);
       const totalRevenue = item.orderItems.reduce((s, oi) => s + Number(oi.totalPrice), 0);
-      const unitCost = Number(item.cost || 0);
+      const unitCost = costMap.get(item.id) ?? Number(item.cost || 0);
       const unitPrice = Number(item.price);
       const profitPerItem = unitPrice - unitCost;
       const margin = unitPrice > 0 ? (profitPerItem / unitPrice) * 100 : 0;
+      const foodCostPct = unitPrice > 0 ? (unitCost / unitPrice) * 100 : 0;
       return {
         id: item.id, nameAr: item.nameAr, category: item.category.nameAr,
-        unitPrice, unitCost, profitPerItem: Math.round(profitPerItem * 100) / 100,
-        margin: Math.round(margin * 10) / 10, totalSold, totalRevenue: Math.round(totalRevenue * 100) / 100,
+        unitPrice, unitCost: Math.round(unitCost * 100) / 100,
+        profitPerItem: Math.round(profitPerItem * 100) / 100,
+        margin: Math.round(margin * 10) / 10,
+        foodCostPct: Math.round(foodCostPct * 10) / 10,
+        totalSold, totalRevenue: Math.round(totalRevenue * 100) / 100,
       };
     }).sort((a, b) => b.margin - a.margin);
   }
@@ -306,19 +360,20 @@ export class AnalyticsService {
       orderBy: { isMain: 'desc' },
     });
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const costMap = await this.getEffectiveCostMap(restaurantId);
 
     const results = await Promise.all(
       branches.map(async (b) => {
         const orders = await this.prisma.order.findMany({
           where: { branchId: b.id, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
-          include: { items: { include: { menuItem: { select: { cost: true } } } } },
+          include: { items: { select: { menuItemId: true, quantity: true } } },
         });
 
         const revenue = orders.reduce((s, o) => s + Number(o.total), 0);
         let cost = 0;
         for (const o of orders) {
           for (const item of o.items) {
-            cost += Number(item.menuItem.cost || 0) * item.quantity;
+            cost += (costMap.get(item.menuItemId) ?? 0) * item.quantity;
           }
         }
         const profit = revenue - cost;
@@ -363,6 +418,101 @@ export class AnalyticsService {
       orders: val.orders,
       revenue: Math.round(val.revenue),
     }));
+  }
+
+  // Prayer-gap analysis: how much order flow dips during each prayer window
+  // versus the surrounding "shoulder" minutes. Uses the branch's own coords so
+  // prayer times are accurate per location (falls back to Riyadh).
+  private async _getPrayerGap(restaurantId: string, branchId?: string) {
+    const branchIds = await this.resolveBranchIds(restaurantId, branchId);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Resolve coordinates from the covered branches (first with coords, else Riyadh).
+    const branchesWithCoords = await this.prisma.branch.findMany({
+      where: { id: { in: branchIds } },
+      select: { latitude: true, longitude: true },
+    });
+    const geo = branchesWithCoords.find((b) => b.latitude != null && b.longitude != null);
+    const lat = geo?.latitude ?? DEFAULT_COORDS.latitude;
+    const lng = geo?.longitude ?? DEFAULT_COORDS.longitude;
+
+    const orders = await this.prisma.order.findMany({
+      where: { branchId: { in: branchIds }, createdAt: { gte: thirtyDaysAgo }, status: { not: 'CANCELLED' } },
+      select: { total: true, createdAt: true },
+    });
+
+    const WINDOW = 30; // minutes from adhan considered "prayer time"
+    const SHOULDER = 45; // minutes on each side used as the local baseline
+
+    // Cache each day's prayer times so we compute them once per calendar day.
+    const dayCache: Record<string, ReturnType<typeof getPrayerTimes>> = {};
+    const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+    const agg: Record<string, { win: number; winRev: number; shoulder: number }> = {};
+    for (const p of PAUSING_PRAYERS) agg[p] = { win: 0, winRev: 0, shoulder: 0 };
+    const activeDays = new Set<string>();
+
+    for (const o of orders) {
+      const when = new Date(o.createdAt);
+      const key = dayKey(when);
+      activeDays.add(key);
+      if (!dayCache[key]) dayCache[key] = getPrayerTimes(when, lat, lng);
+      const times = dayCache[key];
+
+      for (const p of PAUSING_PRAYERS) {
+        const deltaMin = (when.getTime() - times[p].getTime()) / 60000;
+        if (deltaMin >= 0 && deltaMin < WINDOW) {
+          agg[p].win += 1;
+          agg[p].winRev += Number(o.total);
+        } else if (
+          (deltaMin >= -SHOULDER && deltaMin < 0) ||
+          (deltaMin >= WINDOW && deltaMin < WINDOW + SHOULDER)
+        ) {
+          agg[p].shoulder += 1;
+        }
+      }
+    }
+
+    const days = Math.max(1, activeDays.size);
+    const prayers = PAUSING_PRAYERS.map((p) => {
+      const winRatePerHr = (agg[p].win / (days * WINDOW)) * 60;
+      const shoulderRatePerHr = (agg[p].shoulder / (days * SHOULDER * 2)) * 60;
+      const dipPercent =
+        shoulderRatePerHr > 0
+          ? Math.round((1 - winRatePerHr / shoulderRatePerHr) * 100)
+          : 0;
+      // Orders we'd expect at the baseline rate minus what actually happened.
+      const estLostOrders = Math.max(
+        0,
+        Math.round(((shoulderRatePerHr - winRatePerHr) * (WINDOW / 60)) * days),
+      );
+      return {
+        prayer: p,
+        label: PRAYER_LABELS_AR[p],
+        ordersInWindow: agg[p].win,
+        revenueInWindow: Math.round(agg[p].winRev),
+        windowRatePerHour: Math.round(winRatePerHr * 10) / 10,
+        baselineRatePerHour: Math.round(shoulderRatePerHr * 10) / 10,
+        dipPercent: Math.max(0, dipPercent), // only report actual dips
+        estLostOrders,
+      };
+    });
+
+    const totalEstLostOrders = prayers.reduce((s, p) => s + p.estLostOrders, 0);
+    const biggest = prayers.reduce((a, b) => (b.dipPercent > a.dipPercent ? b : a), prayers[0]);
+    const avgDip = Math.round(prayers.reduce((s, p) => s + p.dipPercent, 0) / prayers.length);
+
+    return {
+      days,
+      prayers,
+      summary: {
+        avgDipPercent: avgDip,
+        totalEstLostOrders,
+        biggestDipPrayer: biggest.dipPercent > 0 ? biggest.label : null,
+        biggestDipPercent: biggest.dipPercent,
+      },
+    };
   }
 
   // Derives natural-language, prioritized business insights from the existing

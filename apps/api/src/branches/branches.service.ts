@@ -15,35 +15,42 @@ export class BranchesService {
       orderBy: { isMain: 'desc' },
     });
 
-    // Enrich with revenue and today's orders for each branch
-    const enriched = await Promise.all(
-      branches.map(async (branch) => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+    if (branches.length === 0) return [];
 
-        const [revenue, todayOrders, availableTables] = await Promise.all([
-          this.prisma.order.aggregate({
-            where: { branchId: branch.id, status: 'COMPLETED' },
-            _sum: { total: true },
-          }),
-          this.prisma.order.count({
-            where: { branchId: branch.id, createdAt: { gte: today } },
-          }),
-          this.prisma.table.count({
-            where: { branchId: branch.id, status: 'AVAILABLE' },
-          }),
-        ]);
+    // Enrich with revenue and today's orders. Aggregate every branch in three
+    // grouped queries instead of three per branch (was 3N+1 round-trips).
+    const branchIds = branches.map((b) => b.id);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-        return {
-          ...branch,
-          totalRevenue: revenue._sum.total || 0,
-          todayOrders,
-          availableTables,
-        };
+    const [revenueByBranch, todayOrdersByBranch, availableTablesByBranch] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['branchId'],
+        where: { branchId: { in: branchIds }, status: 'COMPLETED' },
+        _sum: { total: true },
       }),
-    );
+      this.prisma.order.groupBy({
+        by: ['branchId'],
+        where: { branchId: { in: branchIds }, createdAt: { gte: today } },
+        _count: { _all: true },
+      }),
+      this.prisma.table.groupBy({
+        by: ['branchId'],
+        where: { branchId: { in: branchIds }, status: 'AVAILABLE' },
+        _count: { _all: true },
+      }),
+    ]);
 
-    return enriched;
+    const revenueMap = new Map(revenueByBranch.map((r) => [r.branchId, Number(r._sum.total || 0)]));
+    const todayOrdersMap = new Map(todayOrdersByBranch.map((r) => [r.branchId, r._count._all]));
+    const availableTablesMap = new Map(availableTablesByBranch.map((r) => [r.branchId, r._count._all]));
+
+    return branches.map((branch) => ({
+      ...branch,
+      totalRevenue: revenueMap.get(branch.id) || 0,
+      todayOrders: todayOrdersMap.get(branch.id) || 0,
+      availableTables: availableTablesMap.get(branch.id) || 0,
+    }));
   }
 
   async create(restaurantId: string, dto: CreateBranchDto) {

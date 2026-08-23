@@ -4,6 +4,10 @@ import { CreateOrderDto, UpdateStatusDto } from './dto/create-order.dto';
 import { OrdersGateway } from './orders.gateway';
 import { CacheService } from '../cache/cache.service';
 import { buildZatcaQR } from '../common/zatca';
+import { pointsForOrder, pointsValue } from '../customers/loyalty.config';
+import { computeOrderTotals } from './order-totals';
+import { computeIngredientUsage } from './inventory-deduction';
+import { WhatsAppService } from '../messaging/whatsapp.service';
 
 @Injectable()
 export class OrdersService {
@@ -11,6 +15,7 @@ export class OrdersService {
     private prisma: PrismaService,
     private ordersGateway: OrdersGateway,
     private cache: CacheService,
+    private whatsapp: WhatsAppService,
   ) {}
 
   private async getBranchIds(restaurantId: string) {
@@ -45,7 +50,7 @@ export class OrdersService {
         include: {
           branch: { select: { nameAr: true } },
           table: { select: { number: true, nameAr: true } },
-          items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+          items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -60,6 +65,7 @@ export class OrdersService {
   async create(restaurantId: string, dto: CreateOrderDto) {
     const menuItems = await this.prisma.menuItem.findMany({
       where: { id: { in: dto.items.map((i) => i.menuItemId) } },
+      include: { ingredients: { select: { ingredientId: true, quantity: true } } },
     });
 
     const itemsData = dto.items.map((item) => {
@@ -74,34 +80,28 @@ export class OrdersService {
       };
     });
 
-    const subtotal = itemsData.reduce((s, i) => s + i.totalPrice, 0);
-    const tax = Math.round(subtotal * 0.15 * 100) / 100; // 15% VAT
-    const discount = dto.discount || 0;
-    const total = Math.round((subtotal + tax - discount) * 100) / 100;
+    // Loyalty redemption needs the customer's live balance. Fetch it up front so
+    // the (pure) totals calculation can validate the redemption without any I/O.
+    const redeemPoints = Math.max(0, Math.floor(dto.redeemPoints || 0));
+    let redeemCustomer: Awaited<ReturnType<typeof this.prisma.customer.findUnique>> = null;
+    if (redeemPoints > 0 && dto.customerId) {
+      redeemCustomer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    }
 
-    // Payment validation
+    const totals = computeOrderTotals({
+      items: itemsData,
+      manualDiscount: dto.discount,
+      redeemPoints: dto.redeemPoints,
+      hasCustomer: !!dto.customerId,
+      customerLoyaltyPoints: redeemPoints > 0 ? redeemCustomer?.loyaltyPoints ?? null : null,
+      paymentMethod: dto.paymentMethod,
+      paidAmount: dto.paidAmount,
+      cashAmount: dto.cashAmount,
+      cardAmount: dto.cardAmount,
+    });
+
+    const { subtotal, tax, discount, total, cashAmount, cardAmount, changeAmount } = totals;
     const paidAmount = dto.paidAmount;
-    if (paidAmount < total) {
-      throw new BadRequestException('المبلغ المدفوع لا يغطي الإجمالي');
-    }
-
-    let cashAmount = 0;
-    let cardAmount = 0;
-    let changeAmount = 0;
-
-    if (dto.paymentMethod === 'CASH') {
-      cashAmount = paidAmount;
-      changeAmount = Math.round((paidAmount - total) * 100) / 100;
-    } else if (dto.paymentMethod === 'CARD') {
-      cardAmount = total;
-    } else if (dto.paymentMethod === 'SPLIT') {
-      cashAmount = dto.cashAmount || 0;
-      cardAmount = dto.cardAmount || 0;
-      if (Math.round((cashAmount + cardAmount) * 100) < Math.round(total * 100)) {
-        throw new BadRequestException('مجموع الدفع المقسم لا يغطي الإجمالي');
-      }
-      changeAmount = Math.round((cashAmount + cardAmount - total) * 100) / 100;
-    }
 
     // Table validation for dine-in
     if (dto.type === 'DINE_IN' && dto.tableId) {
@@ -126,12 +126,14 @@ export class OrdersService {
         cardAmount,
         changeAmount,
         tableId: dto.type === 'DINE_IN' ? dto.tableId : null,
+        deliverySource: dto.type === 'DELIVERY' ? dto.deliverySource ?? 'IN_HOUSE' : null,
+        customerId: dto.customerId ?? null,
         items: { create: itemsData },
       },
       include: {
         branch: { select: { nameAr: true } },
         table: { select: { number: true, nameAr: true } },
-        items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+        items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
       },
     });
 
@@ -145,10 +147,109 @@ export class OrdersService {
       this.ordersGateway.emitTableStatusChanged(restaurantId, updatedTable);
     }
 
+    // Customer stats + loyalty points (only when the order is tied to a customer).
+    // Redemption (deduct) is applied before earning so the balance stays correct
+    // when a customer both redeems and earns on the same order.
+    const customerId = dto.customerId;
+    if (customerId) {
+      const earned = pointsForOrder(total);
+      const customer = redeemCustomer ?? (await this.prisma.customer.findUnique({ where: { id: customerId } }));
+      if (customer) {
+        await this.prisma.$transaction(async (tx) => {
+          let balance = customer.loyaltyPoints;
+
+          if (redeemPoints > 0) {
+            balance -= redeemPoints;
+            await tx.loyaltyTransaction.create({
+              data: {
+                customerId,
+                orderId: order.id,
+                type: 'REDEEM',
+                points: -redeemPoints,
+                balanceAfter: balance,
+                note: `استبدال على طلب ${order.orderNumber}`,
+              },
+            });
+          }
+
+          balance += earned;
+          await tx.customer.update({
+            where: { id: customerId },
+            data: {
+              totalOrders: { increment: 1 },
+              totalSpent: { increment: total },
+              lastOrderAt: new Date(),
+              loyaltyPoints: balance,
+              lifetimePoints: { increment: earned },
+            },
+          });
+          if (earned > 0) {
+            await tx.loyaltyTransaction.create({
+              data: {
+                customerId,
+                orderId: order.id,
+                type: 'EARN',
+                points: earned,
+                balanceAfter: balance,
+                note: `طلب ${order.orderNumber}`,
+              },
+            });
+          }
+        });
+      }
+    }
+
+    // Draw the sold items' ingredients down from stock, by recipe. Stock
+    // tracking must never block a sale, so this is best-effort and isolated.
+    await this.deductRecipeStock(order.id, dto.branchId, dto.items, menuItems);
+
     this.ordersGateway.emitNewOrder(restaurantId, order);
     this.cache.invalidate(`analytics:${restaurantId}:*`);
 
     return order;
+  }
+
+  /**
+   * Decrement ingredient stock for a placed order according to each item's
+   * recipe, recording a CONSUMED inventory log per ingredient. Any failure is
+   * swallowed (logged) — a stock hiccup can't be allowed to fail the order.
+   */
+  private async deductRecipeStock(
+    orderId: string,
+    branchId: string,
+    orderItems: { menuItemId: string; quantity: number }[],
+    menuItems: { id: string; ingredients: { ingredientId: string; quantity: any }[] }[],
+  ) {
+    try {
+      const recipeByMenuItem: Record<string, { ingredientId: string; quantity: any }[]> =
+        Object.fromEntries(menuItems.map((m) => [m.id, m.ingredients]));
+
+      const usage = computeIngredientUsage(
+        orderItems.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+        recipeByMenuItem,
+      );
+      if (usage.length === 0) return;
+
+      await this.prisma.$transaction(
+        usage.flatMap((u) => [
+          this.prisma.ingredient.update({
+            where: { id: u.ingredientId },
+            data: { currentStock: { decrement: u.quantity } },
+          }),
+          this.prisma.inventoryLog.create({
+            data: {
+              ingredientId: u.ingredientId,
+              branchId,
+              type: 'CONSUMED',
+              quantity: u.quantity,
+              note: `استهلاك تلقائي — طلب ${orderId.slice(-6)}`,
+            },
+          }),
+        ]),
+      );
+    } catch (err) {
+      console.error(`[orders] recipe stock deduction failed for order ${orderId}:`, err);
+    }
   }
 
   async findOne(id: string, restaurantId: string) {
@@ -167,11 +268,24 @@ export class OrdersService {
       where: { id },
       data: { status: dto.status },
       include: {
-        branch: { select: { nameAr: true } },
+        branch: { select: { nameAr: true, restaurant: { select: { nameAr: true } } } },
         table: { select: { number: true, nameAr: true } },
-        items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+        customer: { select: { name: true, phone: true } },
+        items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
       },
     });
+
+    // Notify the customer on WhatsApp when their order is ready (best-effort).
+    if (dto.status === 'READY' && order.customer?.phone) {
+      await this.whatsapp.sendOrderReady({
+        restaurantId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customer.name,
+        rawPhone: order.customer.phone,
+        restaurantName: order.branch?.restaurant?.nameAr || 'مطعمنا',
+      });
+    }
 
     // Sync item station statuses when order status is manually set
     if (dto.status === 'READY' || dto.status === 'COMPLETED') {
@@ -231,7 +345,34 @@ export class OrdersService {
         })
       : null;
 
-    return { ...order, zatcaQR };
+    // Loyalty summary for the receipt: points redeemed/earned on this order and
+    // the customer's resulting balance (from the txns tied to this order, so a
+    // reprint stays accurate even after later orders move the live balance).
+    let loyalty: {
+      redeemedPoints: number;
+      redeemedValue: number;
+      earnedPoints: number;
+      balance: number | null;
+    } | null = null;
+    if (order.customerId) {
+      const txns = await this.prisma.loyaltyTransaction.findMany({
+        where: { orderId: order.id },
+        select: { type: true, points: true, balanceAfter: true },
+      });
+      const redeem = txns.find((t) => t.type === 'REDEEM');
+      const earn = txns.find((t) => t.type === 'EARN');
+      if (redeem || earn) {
+        const redeemedPoints = redeem ? Math.abs(redeem.points) : 0;
+        loyalty = {
+          redeemedPoints,
+          redeemedValue: pointsValue(redeemedPoints),
+          earnedPoints: earn ? earn.points : 0,
+          balance: earn?.balanceAfter ?? redeem?.balanceAfter ?? null,
+        };
+      }
+    }
+
+    return { ...order, zatcaQR, loyalty };
   }
 
   async getShiftReport(restaurantId: string, filters: { from: string; to: string; branchId?: string }) {
@@ -259,19 +400,47 @@ export class OrdersService {
     const totalDiscount = completed.reduce((s, o) => s + Number(o.discount), 0);
     const avgOrderValue = completed.length > 0 ? totalRevenue / completed.length : 0;
 
-    // Payment breakdown
+    // Payment breakdown. CARD here aggregates every cashless rail (card, Mada,
+    // STC Pay, Apple Pay, Tabby, Tamara) so the cash-vs-cashless split stays
+    // meaningful; `byMethod` keeps the per-rail detail for reporting.
     const cashOrders = completed.filter((o) => o.paymentMethod === 'CASH');
-    const cardOrders = completed.filter((o) => o.paymentMethod === 'CARD');
     const splitOrders = completed.filter((o) => o.paymentMethod === 'SPLIT');
+    const cardOrders = completed.filter(
+      (o) => o.paymentMethod !== 'CASH' && o.paymentMethod !== 'SPLIT',
+    );
 
     const totalCash = completed.reduce((s, o) => s + Number(o.cashAmount), 0);
     const totalCard = completed.reduce((s, o) => s + Number(o.cardAmount), 0);
     const totalChange = completed.reduce((s, o) => s + Number(o.changeAmount), 0);
 
+    // Per-rail breakdown (by order total), sorted by revenue desc.
+    const methodAgg: Record<string, { count: number; total: number }> = {};
+    completed.forEach((o) => {
+      const m = o.paymentMethod;
+      if (!methodAgg[m]) methodAgg[m] = { count: 0, total: 0 };
+      methodAgg[m].count += 1;
+      methodAgg[m].total += Number(o.total);
+    });
+    const byMethod = Object.entries(methodAgg)
+      .map(([method, v]) => ({ method, count: v.count, total: Math.round(v.total * 100) / 100 }))
+      .sort((a, b) => b.total - a.total);
+
     // Type breakdown
     const dineIn = completed.filter((o) => o.type === 'DINE_IN');
     const takeaway = completed.filter((o) => o.type === 'TAKEAWAY');
     const delivery = completed.filter((o) => o.type === 'DELIVERY');
+
+    // Delivery split by platform (Jahez, HungerStation, ToYou, Keeta, Mrsool, in-house).
+    const sourceAgg: Record<string, { count: number; total: number }> = {};
+    delivery.forEach((o) => {
+      const src = o.deliverySource ?? 'IN_HOUSE';
+      if (!sourceAgg[src]) sourceAgg[src] = { count: 0, total: 0 };
+      sourceAgg[src].count += 1;
+      sourceAgg[src].total += Number(o.total);
+    });
+    const deliveryBySource = Object.entries(sourceAgg)
+      .map(([source, v]) => ({ source, count: v.count, total: Math.round(v.total * 100) / 100 }))
+      .sort((a, b) => b.total - a.total);
 
     // Top items
     const itemCounts: Record<string, { nameAr: string; quantity: number; revenue: number }> = {};
@@ -303,12 +472,14 @@ export class OrdersService {
         card: { count: cardOrders.length, total: Math.round(totalCard * 100) / 100 },
         split: { count: splitOrders.length },
         totalChange: Math.round(totalChange * 100) / 100,
+        byMethod,
       },
       orderTypes: {
         dineIn: { count: dineIn.length, total: Math.round(dineIn.reduce((s, o) => s + Number(o.total), 0) * 100) / 100 },
         takeaway: { count: takeaway.length, total: Math.round(takeaway.reduce((s, o) => s + Number(o.total), 0) * 100) / 100 },
         delivery: { count: delivery.length, total: Math.round(delivery.reduce((s, o) => s + Number(o.total), 0) * 100) / 100 },
       },
+      deliveryBySource,
       topItems,
     };
   }
@@ -349,7 +520,7 @@ export class OrdersService {
         include: {
           branch: { select: { nameAr: true } },
           table: { select: { number: true, nameAr: true } },
-          items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+          items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
         },
       });
       this.ordersGateway.emitOrderStatusChanged(restaurantId, readyOrder);
@@ -360,7 +531,7 @@ export class OrdersService {
         include: {
           branch: { select: { nameAr: true } },
           table: { select: { number: true, nameAr: true } },
-          items: { include: { menuItem: { select: { nameAr: true, stationId: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
+          items: { include: { menuItem: { select: { nameAr: true, stationId: true, preparationTime: true, station: { select: { id: true, nameAr: true, color: true } } } } } },
         },
       });
       this.ordersGateway.emitOrderStatusChanged(restaurantId, preparingOrder);

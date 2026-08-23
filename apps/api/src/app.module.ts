@@ -20,6 +20,7 @@ import { KitchenStationsModule } from './kitchen-stations/kitchen-stations.modul
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { PublicModule } from './public/public.module';
 import { HealthModule } from './health/health.module';
+import { MessagingModule } from './messaging/messaging.module';
 import { JwtAuthGuard } from './common/jwt-auth.guard';
 import { RolesGuard } from './common/roles.guard';
 import { SubscriptionGuard } from './common/subscription.guard';
@@ -48,6 +49,7 @@ import { SubscriptionGuard } from './common/subscription.guard';
     SubscriptionsModule,
     PublicModule,
     HealthModule,
+    MessagingModule,
   ],
   providers: [
     {

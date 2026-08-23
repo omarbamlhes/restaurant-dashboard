@@ -35,6 +35,27 @@ export class EmployeesController {
     return this.employeesService.create(rid, dto);
   }
 
+  @Get('attendance')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  async attendance(@Request() req, @Query('date') date?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.employeesService.getAttendance(rid, date);
+  }
+
+  @Post(':id/check-in')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  async checkIn(@Request() req, @Param('id') id: string, @Body('note') note?: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.employeesService.checkIn(id, rid, note);
+  }
+
+  @Post(':id/check-out')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  async checkOut(@Request() req, @Param('id') id: string) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.employeesService.checkOut(id, rid);
+  }
+
   @Get(':id')
   @Roles(UserRole.OWNER, UserRole.MANAGER)
   async findOne(@Request() req, @Param('id') id: string) {

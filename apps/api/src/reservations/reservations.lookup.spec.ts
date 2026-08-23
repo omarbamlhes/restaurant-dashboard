@@ -18,7 +18,7 @@ describe('ReservationsService.lookup', () => {
       branch: { findMany: jest.fn().mockResolvedValue([{ id: 'b1' }, { id: 'b2' }]) },
       reservation: { findFirst: jest.fn().mockResolvedValue(found) },
     };
-    service = new ReservationsService(prisma, {} as any);
+    service = new ReservationsService(prisma, {} as any, {} as any);
   });
 
   it('rejects an empty code', async () => {

@@ -22,11 +22,18 @@ import {
   Split,
   Printer,
   BarChart3,
+  Moon,
+  User,
+  Crown,
   Receipt as ReceiptIcon,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
+import { PAYMENT_METHODS, PAYMENT_METHOD_ORDER, type PaymentMethodKey } from '@/lib/payment-methods';
+import { DELIVERY_SOURCES, DELIVERY_SOURCE_ORDER, type DeliverySourceKey } from '@/lib/delivery-sources';
+import { usePrayerWindow } from '@/hooks/usePrayerWindow';
+import CustomerPickerModal, { type PosCustomer } from '@/components/pos/CustomerPickerModal';
 import Receipt from '@/components/shared/Receipt';
 import { useAuthStore } from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
@@ -75,7 +82,7 @@ interface TableData {
 }
 
 type OrderType = 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
-type PaymentMethod = 'CASH' | 'CARD' | 'SPLIT';
+type PaymentMethod = PaymentMethodKey;
 
 const orderTypeLabels: Record<OrderType, string> = {
   DINE_IN: 'محلي',
@@ -83,11 +90,9 @@ const orderTypeLabels: Record<OrderType, string> = {
   DELIVERY: 'توصيل',
 };
 
-const paymentMethodLabels: Record<string, string> = {
-  CASH: 'نقدي',
-  CARD: 'بطاقة',
-  SPLIT: 'مقسم',
-};
+// Loyalty redemption rules — mirror apps/api/src/customers/loyalty.config.ts.
+const REDEEM_VALUE_PER_POINT = 0.05; // 100 pts = 5 SAR
+const LOYALTY_MIN_REDEEM = 100;
 
 // --- Clock Component ---
 
@@ -257,9 +262,23 @@ export default function POSPage() {
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderType, setOrderType] = useState<OrderType>('DINE_IN');
+  const [deliverySource, setDeliverySource] = useState<DeliverySourceKey>('IN_HOUSE');
+
+  // Prayer mode: softly pause checkout during prayer windows (staff can override).
+  const [previewPrayer, setPreviewPrayer] = useState(false);
+  const prayer = usePrayerWindow(undefined, undefined, previewPrayer);
+  const [prayerOverride, setPrayerOverride] = useState(false);
+  const ordersPaused = prayer.active && !prayerOverride;
+  // Reset the manual override once the prayer window passes.
+  useEffect(() => {
+    if (!prayer.active && prayerOverride) setPrayerOverride(false);
+  }, [prayer.active, prayerOverride]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [customer, setCustomer] = useState<PosCustomer | null>(null);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [discount, setDiscount] = useState(0);
+  const [redeemPoints, setRedeemPoints] = useState(0);
   const [notesItemId, setNotesItemId] = useState<string | null>(null);
 
   // Payment modal
@@ -369,6 +388,7 @@ export default function POSPage() {
   function clearCart() {
     setCart([]);
     setDiscount(0);
+    setRedeemPoints(0);
     setNotesItemId(null);
     setSelectedTable(null);
   }
@@ -381,12 +401,35 @@ export default function POSPage() {
 
   const subtotal = useMemo(() => cart.reduce((sum, c) => sum + c.price * c.quantity, 0), [cart]);
   const vat = useMemo(() => Math.round(subtotal * 0.15 * 100) / 100, [subtotal]);
-  const total = useMemo(() => Math.max(0, Math.round((subtotal + vat - discount) * 100) / 100), [subtotal, vat, discount]);
+
+  // Loyalty redemption: cap by both the customer's balance and the order value
+  // still owed after the manual discount, so a redemption never exceeds the bill.
+  const maxRedeemablePoints = useMemo(() => {
+    if (!customer || typeof customer.loyaltyPoints !== 'number') return 0;
+    const owed = Math.max(0, subtotal + vat - discount);
+    const maxByValue = Math.floor(owed / REDEEM_VALUE_PER_POINT);
+    return Math.min(customer.loyaltyPoints, maxByValue);
+  }, [customer, subtotal, vat, discount]);
+  const canRedeem = maxRedeemablePoints >= LOYALTY_MIN_REDEEM;
+  const redeemValue = useMemo(() => Math.round(redeemPoints * REDEEM_VALUE_PER_POINT * 100) / 100, [redeemPoints]);
+
+  const total = useMemo(
+    () => Math.max(0, Math.round((subtotal + vat - discount - redeemValue) * 100) / 100),
+    [subtotal, vat, discount, redeemValue],
+  );
+
+  // Keep the redemption within bounds as the cart, discount or customer changes.
+  useEffect(() => {
+    if (redeemPoints > maxRedeemablePoints) {
+      setRedeemPoints(maxRedeemablePoints >= LOYALTY_MIN_REDEEM ? maxRedeemablePoints : 0);
+    }
+  }, [maxRedeemablePoints, redeemPoints]);
 
   // --- Payment logic ---
 
   function openPaymentModal() {
     if (cart.length === 0 || !selectedBranch) return;
+    if (ordersPaused) return;
     setPaymentMethod('CASH');
     setCashInput('');
     setSplitCash('');
@@ -394,15 +437,17 @@ export default function POSPage() {
     setShowPayment(true);
   }
 
+  const paymentCategory = PAYMENT_METHODS[paymentMethod].category;
   const cashPaid = parseFloat(cashInput) || 0;
   const changeAmount = paymentMethod === 'CASH' ? Math.max(0, Math.round((cashPaid - total) * 100) / 100) : 0;
   const canPayCash = paymentMethod === 'CASH' && cashPaid >= total;
-  const canPayCard = paymentMethod === 'CARD';
+  // Card, Mada, STC Pay, Apple Pay, Tabby, Tamara — all settle in full, no input.
+  const canPayCashless = paymentCategory === 'cashless';
   const splitCashVal = parseFloat(splitCash) || 0;
   const splitCardVal = parseFloat(splitCard) || 0;
   const canPaySplit = paymentMethod === 'SPLIT' && Math.round((splitCashVal + splitCardVal) * 100) >= Math.round(total * 100);
 
-  const canSubmitPayment = canPayCash || canPayCard || canPaySplit;
+  const canSubmitPayment = canPayCash || canPayCashless || canPaySplit;
 
   async function submitOrder() {
     if (!canSubmitPayment) return;
@@ -415,12 +460,13 @@ export default function POSPage() {
       if (paymentMethod === 'CASH') {
         paidAmount = cashPaid;
         cashAmt = cashPaid;
-      } else if (paymentMethod === 'CARD') {
-        cardAmt = total;
-      } else {
+      } else if (paymentMethod === 'SPLIT') {
         paidAmount = splitCashVal + splitCardVal;
         cashAmt = splitCashVal;
         cardAmt = splitCardVal;
+      } else {
+        // cashless rails (card / mada / stc pay / apple pay / tabby / tamara)
+        cardAmt = total;
       }
 
       const { data: order } = await api.post('/orders', {
@@ -432,6 +478,9 @@ export default function POSPage() {
         cashAmount: cashAmt,
         cardAmount: cardAmt,
         tableId: orderType === 'DINE_IN' ? selectedTable : undefined,
+        deliverySource: orderType === 'DELIVERY' ? deliverySource : undefined,
+        customerId: customer?.id,
+        redeemPoints: customer && redeemPoints > 0 ? redeemPoints : undefined,
         items: cart.map((c) => ({
           menuItemId: c.menuItemId,
           quantity: c.quantity,
@@ -439,8 +488,20 @@ export default function POSPage() {
         })),
       });
 
+      // Loyalty earns 1 point per SAR of the order total (see loyalty.config).
+      if (customer) {
+        const earned = Math.floor(Number(order.total) || total);
+        const redeemed = redeemPoints > 0;
+        showToast(
+          redeemed
+            ? `تم — استبدال ${redeemPoints} نقطة (${formatSAR(redeemValue)} ر.س) · كسب ${earned} نقطة`
+            : `تم — كسب ${customer.name} ${earned} نقطة ولاء`,
+        );
+      }
+
       setShowPayment(false);
       clearCart();
+      setCustomer(null);
 
       // Fetch receipt data
       try {
@@ -508,6 +569,20 @@ export default function POSPage() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Prayer-mode preview toggle */}
+          <button
+            onClick={() => setPreviewPrayer((v) => !v)}
+            className={cn(
+              'flex items-center gap-2 text-sm transition-colors',
+              previewPrayer ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400 hover:text-emerald-600',
+            )}
+            title="معاينة وضع الصلاة"
+          >
+            <Moon className="w-4 h-4" />
+            <span className="hidden sm:inline">{previewPrayer ? 'إيقاف المعاينة' : 'معاينة الصلاة'}</span>
+          </button>
+          <div className="h-5 w-px bg-gray-200 dark:bg-dark-border" />
+
           {/* Shift Report */}
           <button
             onClick={() => setShowShiftReport(true)}
@@ -698,6 +773,68 @@ export default function POSPage() {
             </div>
           </div>
 
+          {/* Customer link — enables loyalty earning */}
+          <div className="flex-shrink-0 px-3 py-2 border-b border-gray-100 dark:border-dark-border/50">
+            {customer ? (
+              <div className="flex items-center gap-2 p-2 rounded-xl bg-primary-50 dark:bg-primary-950/30 border border-primary-200 dark:border-primary-900/50">
+                <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center shrink-0">
+                  <User className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{customer.name}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400" dir="ltr">{customer.phone}</p>
+                </div>
+                {typeof customer.loyaltyPoints === 'number' && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">
+                    <Crown className="w-3.5 h-3.5" />
+                    {customer.loyaltyPoints}
+                  </span>
+                )}
+                <button onClick={() => setCustomer(null)} className="p-1 rounded-lg hover:bg-white/60 dark:hover:bg-dark-card transition-colors shrink-0" title="إزالة">
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCustomerPicker(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-gray-300 dark:border-dark-border text-sm font-medium text-gray-500 dark:text-gray-400 hover:border-primary-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+              >
+                <User className="w-4 h-4" />
+                ربط عميل (نقاط ولاء)
+              </button>
+            )}
+          </div>
+
+          {/* Delivery source picker for DELIVERY */}
+          {orderType === 'DELIVERY' && (
+            <div className="flex-shrink-0 p-3 border-b border-gray-100 dark:border-dark-border/50">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">مصدر التوصيل</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {DELIVERY_SOURCE_ORDER.map((key) => {
+                  const meta = DELIVERY_SOURCES[key];
+                  const active = deliverySource === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setDeliverySource(key)}
+                      className={cn(
+                        'flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg text-xs font-medium border transition-all min-h-[40px]',
+                        active
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'bg-gray-50 dark:bg-dark-hover text-gray-600 dark:text-gray-300 border-gray-200 dark:border-dark-border hover:border-primary-300',
+                      )}
+                    >
+                      <span className={cn('inline-flex items-center justify-center rounded-md text-[10px] font-bold w-4 h-4 shrink-0', active ? 'bg-white/25 text-white' : meta.markClass)}>
+                        {meta.mark}
+                      </span>
+                      <span className="truncate">{meta.short}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Table Picker for DINE_IN */}
           {orderType === 'DINE_IN' && tables.length > 0 && (
             <div className="flex-shrink-0 p-3 border-b border-gray-100 dark:border-dark-border/50">
@@ -834,6 +971,58 @@ export default function POSPage() {
               </div>
             )}
 
+            {/* Loyalty redemption — only when a linked customer has enough points */}
+            {cart.length > 0 && customer && canRedeem && (
+              <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                    <Crown className="w-3.5 h-3.5" />
+                    استبدال نقاط ({customer.loyaltyPoints} متاحة)
+                  </span>
+                  {redeemPoints > 0 && (
+                    <button
+                      onClick={() => setRedeemPoints(0)}
+                      className="text-[11px] text-gray-400 hover:text-rose-500 transition-colors"
+                    >
+                      إلغاء
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[100, 200, 500].filter((p) => p <= maxRedeemablePoints).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setRedeemPoints(redeemPoints === p ? 0 : p)}
+                      className={cn(
+                        'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                        redeemPoints === p
+                          ? 'bg-amber-500 text-white border-amber-500'
+                          : 'bg-white dark:bg-dark-card text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/50 hover:border-amber-400',
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setRedeemPoints(redeemPoints === maxRedeemablePoints ? 0 : maxRedeemablePoints)}
+                    className={cn(
+                      'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                      redeemPoints === maxRedeemablePoints
+                        ? 'bg-amber-500 text-white border-amber-500'
+                        : 'bg-white dark:bg-dark-card text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/50 hover:border-amber-400',
+                    )}
+                  >
+                    الأقصى ({maxRedeemablePoints})
+                  </button>
+                </div>
+                {redeemPoints > 0 && (
+                  <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mt-1.5">
+                    خصم {redeemPoints} نقطة = {formatSAR(redeemValue)} ر.س
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Totals */}
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500 dark:text-gray-400">
@@ -850,21 +1039,50 @@ export default function POSPage() {
                   <span>-{formatSAR(discount)} <SARSymbol /></span>
                 </div>
               )}
+              {redeemValue > 0 && (
+                <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                  <span className="flex items-center gap-1"><Crown className="w-3.5 h-3.5" />استبدال نقاط</span>
+                  <span>-{formatSAR(redeemValue)} <SARSymbol /></span>
+                </div>
+              )}
               <div className="flex justify-between text-lg font-bold text-gray-900 dark:text-white pt-1.5 border-t border-gray-200 dark:border-dark-border">
                 <span>الإجمالي</span>
                 <span className="text-primary-600 dark:text-primary-400">{formatSAR(total)} <SARSymbol /></span>
               </div>
             </div>
 
+            {/* Prayer-time soft pause */}
+            {prayer.active && (
+              <div className="mb-2 rounded-xl border border-emerald-300/60 bg-emerald-50 dark:border-emerald-800/60 dark:bg-emerald-950/30 p-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                  <Moon className="w-4 h-4" />
+                  وقت صلاة {prayer.label}
+                </div>
+                <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">
+                  {ordersPaused
+                    ? `الطلبات متوقفة مؤقتاً · تُستأنف بعد ${prayer.endsInMinutes} دقيقة`
+                    : 'تم تجاوز الإيقاف — يمكنك إتمام الطلب'}
+                </p>
+                {ordersPaused && (
+                  <button
+                    onClick={() => setPrayerOverride(true)}
+                    className="mt-2 w-full py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-dark-card text-emerald-700 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                  >
+                    تجاوز والمتابعة
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Action buttons */}
             <div className="flex gap-2">
               <button
                 onClick={openPaymentModal}
-                disabled={cart.length === 0 || !selectedBranch}
+                disabled={cart.length === 0 || !selectedBranch || ordersPaused}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[48px] active:scale-[0.98]"
               >
                 <Banknote className="w-4 h-4" />
-                الدفع
+                {ordersPaused ? 'الطلبات متوقفة' : 'الدفع'}
               </button>
               {cart.length > 0 && (
                 <button
@@ -899,27 +1117,31 @@ export default function POSPage() {
                 <p className="text-3xl font-bold text-primary-700 dark:text-primary-300">{formatSAR(total)} <SARSymbol /></p>
               </div>
 
-              {/* Payment method tabs */}
-              <div className="flex gap-2">
-                {([
-                  { key: 'CASH' as PaymentMethod, label: 'نقدي', icon: Banknote },
-                  { key: 'CARD' as PaymentMethod, label: 'بطاقة', icon: CreditCard },
-                  { key: 'SPLIT' as PaymentMethod, label: 'مقسم', icon: Split },
-                ]).map(({ key, label, icon: Icon }) => (
-                  <button
-                    key={key}
-                    onClick={() => setPaymentMethod(key)}
-                    className={cn(
-                      'flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-colors',
-                      paymentMethod === key
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-400 hover:bg-gray-200',
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </button>
-                ))}
+              {/* Payment method picker — cash, card & Saudi rails (Mada, STC Pay, Apple Pay, Tabby, Tamara), split */}
+              <div className="grid grid-cols-4 gap-2">
+                {PAYMENT_METHOD_ORDER.map((key) => {
+                  const meta = PAYMENT_METHODS[key];
+                  const active = paymentMethod === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setPaymentMethod(key)}
+                      className={cn(
+                        'flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-xs font-medium border transition-all text-center',
+                        active
+                          ? 'bg-primary-600 text-white border-primary-600 shadow-sm shadow-primary-500/25'
+                          : 'bg-gray-50 dark:bg-dark-hover text-gray-600 dark:text-gray-300 border-gray-200 dark:border-dark-border hover:border-primary-300',
+                      )}
+                    >
+                      <span className="leading-tight">{meta.short}</span>
+                      {meta.isBnpl && (
+                        <span className={cn('text-[9px] leading-none px-1 py-0.5 rounded', active ? 'bg-white/20 text-white' : 'bg-teal-100 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300')}>
+                          تقسيط
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* CASH mode */}
@@ -966,11 +1188,18 @@ export default function POSPage() {
                 </div>
               )}
 
-              {/* CARD mode */}
-              {paymentMethod === 'CARD' && (
+              {/* Cashless rails — card / mada / stc pay / apple pay / tabby / tamara */}
+              {paymentCategory === 'cashless' && (
                 <div className="p-6 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 text-center">
                   <CreditCard className="w-12 h-12 text-blue-400 mx-auto mb-3" />
-                  <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">سيتم خصم المبلغ من البطاقة</p>
+                  <div className="flex items-center justify-center gap-2">
+                    <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                      {PAYMENT_METHODS[paymentMethod].isBnpl ? 'دفع بالتقسيط عبر' : 'سيتم الدفع عبر'}
+                    </p>
+                    <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full', PAYMENT_METHODS[paymentMethod].badgeClass)}>
+                      {PAYMENT_METHODS[paymentMethod].label}
+                    </span>
+                  </div>
                   <p className="text-2xl font-bold text-blue-800 dark:text-blue-200 mt-2">{formatSAR(total)} <SARSymbol /></p>
                 </div>
               )}
@@ -1038,6 +1267,13 @@ export default function POSPage() {
       {/* Shift Report Modal */}
       {showShiftReport && selectedBranch && (
         <ShiftReportModal branchId={selectedBranch} onClose={() => setShowShiftReport(false)} />
+      )}
+
+      {showCustomerPicker && (
+        <CustomerPickerModal
+          onClose={() => setShowCustomerPicker(false)}
+          onSelect={(c) => { setCustomer(c); setShowCustomerPicker(false); }}
+        />
       )}
 
       {/* Toast */}

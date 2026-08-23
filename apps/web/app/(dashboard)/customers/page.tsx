@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { UserCircle, Plus, Pencil, Trash2, X, Search, Phone, Mail, ShoppingBag, Crown, Clock, Users } from 'lucide-react';
+import { UserCircle, Plus, Pencil, Trash2, X, Search, Phone, Mail, ShoppingBag, Crown, Clock, Users, FileSpreadsheet } from 'lucide-react';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
+import { downloadCSV, fileDateStamp } from '@/lib/export';
 import SARSymbol from '@/components/shared/SARSymbol';
+import LoyaltyCard from '@/components/customers/LoyaltyCard';
 
 interface Customer {
   id: string;
@@ -106,6 +108,36 @@ export default function CustomersPage() {
     } catch { /* stats are non-critical */ }
   }
 
+  const [exporting, setExporting] = useState(false);
+  async function exportCustomersCSV() {
+    setExporting(true);
+    try {
+      // Pull the whole (search-filtered) customer base, not just loaded pages.
+      const params = new URLSearchParams({ page: '1', limit: '10000' });
+      if (search) params.set('search', search);
+      const { data } = await api.get(`/customers?${params}`);
+      const all: Customer[] = data?.data ?? [];
+
+      const headers = ['الاسم', 'الهاتف', 'البريد', 'عدد الطلبات', 'إجمالي الإنفاق', 'آخر طلب', 'تاريخ الإضافة'];
+      const rows = all.map((c) => [
+        c.name,
+        c.phone,
+        c.email ?? '',
+        c.totalOrders,
+        c.totalSpent,
+        c.lastOrderAt ? new Date(c.lastOrderAt).toLocaleDateString('ar-SA') : '',
+        new Date(c.createdAt).toLocaleDateString('ar-SA'),
+      ]);
+      const ok = downloadCSV(`العملاء-${fileDateStamp()}`, headers, rows);
+      if (ok) toast.success('تم تصدير ملف Excel');
+      else toast.error('لا توجد بيانات للتصدير');
+    } catch {
+      toast.error('فشل تصدير العملاء');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function refresh() {
     fetchCustomers(1, search, true);
     fetchStats();
@@ -180,10 +212,20 @@ export default function CustomersPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">العملاء</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة قاعدة عملاء المطعم</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
-          <Plus className="w-4 h-4" />
-          عميل جديد
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={exportCustomersCSV}
+            disabled={exporting || total === 0}
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            {exporting ? 'جاري التصدير...' : 'تصدير Excel'}
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" />
+            عميل جديد
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -359,6 +401,9 @@ export default function CustomersPage() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">إجمالي</p>
                 </div>
               </div>
+
+              {/* Loyalty program */}
+              <LoyaltyCard customerId={selectedCustomer.id} onChanged={refresh} />
 
               {selectedCustomer.lastOrderAt && (
                 <div className="flex items-center gap-2 mb-4 text-xs text-gray-400">

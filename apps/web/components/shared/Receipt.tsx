@@ -5,6 +5,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Printer, X } from 'lucide-react';
 import { formatSAR } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
+import { paymentLabel } from '@/lib/payment-methods';
+import { buildZatcaQR } from '@/lib/zatca';
 
 interface ReceiptItem {
   id: string;
@@ -30,6 +32,12 @@ interface ReceiptData {
   createdAt: string;
   items: ReceiptItem[];
   zatcaQR?: string | null;
+  loyalty?: {
+    redeemedPoints: number;
+    redeemedValue: number;
+    earnedPoints: number;
+    balance: number | null;
+  } | null;
   table?: { number: number; nameAr?: string } | null;
   branch: {
     nameAr: string;
@@ -50,59 +58,17 @@ const typeLabels: Record<string, string> = {
   DELIVERY: 'توصيل',
 };
 
-const paymentLabels: Record<string, string> = {
-  CASH: 'نقدي',
-  CARD: 'بطاقة',
-  SPLIT: 'مقسم',
-};
-
-// ZATCA TLV encoding for simplified tax invoice QR
-function buildZatcaQR(data: {
-  sellerName: string;
-  taxNumber: string;
-  timestamp: string;
-  totalWithVat: string;
-  vatAmount: string;
-}): string {
-  function tlv(tag: number, value: string): Uint8Array {
-    const encoder = new TextEncoder();
-    const valueBytes = encoder.encode(value);
-    const result = new Uint8Array(2 + valueBytes.length);
-    result[0] = tag;
-    result[1] = valueBytes.length;
-    result.set(valueBytes, 2);
-    return result;
-  }
-
-  const parts = [
-    tlv(1, data.sellerName),
-    tlv(2, data.taxNumber),
-    tlv(3, data.timestamp),
-    tlv(4, data.totalWithVat),
-    tlv(5, data.vatAmount),
-  ];
-
-  const totalLength = parts.reduce((s, p) => s + p.length, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const part of parts) {
-    combined.set(part, offset);
-    offset += part.length;
-  }
-
-  // Base64 encode
-  let binary = '';
-  for (let i = 0; i < combined.length; i++) {
-    binary += String.fromCharCode(combined[i]);
-  }
-  return btoa(binary);
-}
-
 export default function Receipt({ order, onClose }: { order: ReceiptData; onClose: () => void }) {
   const receiptRef = useRef<HTMLDivElement>(null);
 
   const restaurant = order.branch.restaurant;
   const hasVat = restaurant.taxNumber;
+
+  // The order's `discount` bundles the manual discount and the loyalty
+  // redemption; split them back out so each shows as its own receipt line.
+  const loyalty = order.loyalty;
+  const loyaltyValue = loyalty?.redeemedValue ?? 0;
+  const manualDiscount = Math.max(0, Math.round((Number(order.discount) - loyaltyValue) * 100) / 100);
 
   // Prefer the server-generated QR (authoritative + ZATCA Phase 2-ready),
   // fall back to client-side generation for older API responses.
@@ -111,9 +77,9 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
       ? buildZatcaQR({
           sellerName: restaurant.nameAr,
           taxNumber: restaurant.taxNumber!,
-          timestamp: new Date(order.createdAt).toISOString(),
-          totalWithVat: Number(order.total).toFixed(2),
-          vatAmount: Number(order.tax).toFixed(2),
+          timestamp: order.createdAt,
+          totalWithVat: order.total,
+          vatAmount: order.tax,
         })
       : null);
 
@@ -207,10 +173,16 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
               <span>ضريبة القيمة المضافة (15%)</span>
               <span className="font-mono">{formatSAR(order.tax)}</span>
             </div>
-            {Number(order.discount) > 0 && (
+            {manualDiscount > 0 && (
               <div className="flex justify-between text-rose-600">
                 <span>خصم</span>
-                <span className="font-mono">-{formatSAR(order.discount)}</span>
+                <span className="font-mono">-{formatSAR(manualDiscount)}</span>
+              </div>
+            )}
+            {loyaltyValue > 0 && (
+              <div className="flex justify-between text-rose-600">
+                <span>استبدال {loyalty!.redeemedPoints} نقطة</span>
+                <span className="font-mono">-{formatSAR(loyaltyValue)}</span>
               </div>
             )}
             <div className="border-t border-gray-300 my-1" />
@@ -226,7 +198,7 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
           <div className="space-y-1 text-xs">
             <div className="flex justify-between">
               <span>طريقة الدفع</span>
-              <span>{paymentLabels[order.paymentMethod] || order.paymentMethod}</span>
+              <span>{paymentLabel(order.paymentMethod)}</span>
             </div>
             {order.paymentMethod === 'CASH' && (
               <>
@@ -261,6 +233,34 @@ export default function Receipt({ order, onClose }: { order: ReceiptData; onClos
               </>
             )}
           </div>
+
+          {/* Loyalty summary — points redeemed/earned on this order + balance */}
+          {loyalty && (loyalty.earnedPoints > 0 || loyalty.redeemedPoints > 0) && (
+            <>
+              <div className="border-t border-dashed border-gray-300 my-3" />
+              <div className="space-y-1 text-xs">
+                <p className="font-medium text-gray-700">نقاط الولاء</p>
+                {loyalty.redeemedPoints > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>نقاط مستبدلة</span>
+                    <span className="font-mono">-{loyalty.redeemedPoints}</span>
+                  </div>
+                )}
+                {loyalty.earnedPoints > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>نقاط مكتسبة</span>
+                    <span className="font-mono">+{loyalty.earnedPoints}</span>
+                  </div>
+                )}
+                {loyalty.balance != null && (
+                  <div className="flex justify-between font-medium text-gray-800">
+                    <span>رصيد نقاطك</span>
+                    <span className="font-mono">{loyalty.balance}</span>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* ZATCA QR Code */}
           {qrData && (

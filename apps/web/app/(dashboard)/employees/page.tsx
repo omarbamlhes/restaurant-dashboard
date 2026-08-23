@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Users, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, X, List, CalendarClock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import TableSkeleton from '@/components/shared/TableSkeleton';
+import AttendanceBoard from '@/components/employees/AttendanceBoard';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR } from '@/lib/utils';
@@ -40,6 +41,7 @@ const ROLES = [
 const emptyForm = { name: '', nameAr: '', phone: '', role: 'كاشير', salary: '', branchId: '' };
 
 export default function EmployeesPage() {
+  const [view, setView] = useState<'list' | 'attendance'>('list');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,8 +141,6 @@ export default function EmployeesPage() {
     }
   }
 
-  if (loading) return <TableSkeleton columns={7} />;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -149,7 +149,7 @@ export default function EmployeesPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">الموظفين</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة فريق العمل</p>
         </div>
-        {isOwner && (
+        {isOwner && view === 'list' && (
           <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
             <Plus className="w-4 h-4" />
             موظف جديد
@@ -157,6 +157,34 @@ export default function EmployeesPage() {
         )}
       </div>
 
+      {/* View tabs */}
+      <div className="inline-flex rounded-xl bg-gray-100 dark:bg-dark-hover p-1">
+        {([
+          { key: 'list' as const, label: 'قائمة الموظفين', icon: List },
+          { key: 'attendance' as const, label: 'الحضور والانصراف', icon: CalendarClock },
+        ]).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+              view === key
+                ? 'bg-white dark:bg-dark-card text-primary-600 dark:text-primary-400 shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700',
+            )}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'attendance' ? (
+        <AttendanceBoard />
+      ) : loading ? (
+        <TableSkeleton columns={7} />
+      ) : (
+      <>
       {/* Filters */}
       <div className="glass-card p-4">
         <div className="flex flex-wrap gap-3">
@@ -322,6 +350,8 @@ export default function EmployeesPage() {
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Add/Edit Modal */}

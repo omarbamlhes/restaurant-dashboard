@@ -17,6 +17,8 @@ import {
   LogOut,
   Check,
   Flame,
+  ClipboardList,
+  CheckCircle2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -48,6 +50,7 @@ interface OrderItem {
   menuItem: {
     nameAr: string;
     stationId: string | null;
+    preparationTime?: number | null;
     station: { id: string; nameAr: string; color: string } | null;
   };
 }
@@ -95,6 +98,55 @@ function isOverdue(createdAt: string): boolean {
   return Date.now() - new Date(createdAt).getTime() > 15 * 60 * 1000;
 }
 
+// SLA colour by elapsed time vs the order's expected prep target (longest item).
+// Falls back to a 15-min default when prep times aren't set.
+type SLALevel = 'ok' | 'warn' | 'late';
+function getSLA(order: Order): { level: SLALevel; elapsedMin: number; targetMin: number } {
+  const elapsedMin = Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000);
+  const targetMin = Math.max(
+    5,
+    ...order.items.map((i) => i.menuItem.preparationTime || 0),
+    order.items.length ? 0 : 15,
+  );
+  const level: SLALevel = elapsedMin <= targetMin ? 'ok' : elapsedMin <= targetMin * 1.5 ? 'warn' : 'late';
+  return { level, elapsedMin, targetMin };
+}
+
+const SLA_STYLES: Record<SLALevel, { bar: string; text: string; ring: string }> = {
+  ok: { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', ring: 'ring-emerald-400' },
+  warn: { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400', ring: 'ring-amber-400' },
+  late: { bar: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400', ring: 'ring-rose-500' },
+};
+
+// Per-station progress for one order (for the Expo/assembly board).
+interface StationProgress {
+  stationId: string;
+  nameAr: string;
+  color: string;
+  done: number;
+  total: number;
+}
+function getStationProgress(order: Order): StationProgress[] {
+  const map = new Map<string, StationProgress>();
+  for (const item of order.items) {
+    const st = item.menuItem.station;
+    const key = st?.id ?? 'none';
+    if (!map.has(key)) {
+      map.set(key, {
+        stationId: key,
+        nameAr: st?.nameAr ?? 'غير مصنّف',
+        color: st?.color ?? '#94a3b8',
+        done: 0,
+        total: 0,
+      });
+    }
+    const p = map.get(key)!;
+    p.total += 1;
+    if (item.stationStatus === 'DONE') p.done += 1;
+  }
+  return Array.from(map.values());
+}
+
 function playBeep() {
   try {
     const ctx = new AudioContext();
@@ -122,6 +174,7 @@ export default function KitchenPage() {
   const [stations, setStations] = useState<KitchenStation[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedStation, setSelectedStation] = useState(''); // '' = all stations
+  const [expoMode, setExpoMode] = useState(false); // assembly/pass board
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [now, setNow] = useState(Date.now());
@@ -294,17 +347,18 @@ export default function KitchenPage() {
     }
   }
 
-  // Mark all items for a station in an order as next status
+  // Batch-bump a station's items one uniform stage at a time: first click
+  // starts every PENDING item (→PREPARING), next click marks every PREPARING
+  // item ready (→DONE). Keeps the whole station group in step.
   async function advanceAllStationItems(order: Order) {
     const stationItems = getStationItems(order);
-    const pendingItems = stationItems.filter(i => i.stationStatus !== 'DONE');
-    if (pendingItems.length === 0) return;
+    const anyPending = stationItems.some((i) => i.stationStatus === 'PENDING');
+    const from = anyPending ? 'PENDING' : 'PREPARING';
+    const targets = stationItems.filter((i) => i.stationStatus === from);
+    if (targets.length === 0) return;
 
-    for (const item of pendingItems) {
-      const idx = ITEM_STATUS_FLOW.indexOf(item.stationStatus);
-      if (idx < ITEM_STATUS_FLOW.length - 1) {
-        await advanceItemStatus(order.id, item.id, item.stationStatus);
-      }
+    for (const item of targets) {
+      await advanceItemStatus(order.id, item.id, from);
     }
   }
 
@@ -377,12 +431,12 @@ export default function KitchenPage() {
         <div className="flex items-center gap-3">
           {/* Station selector */}
           {stations.length > 0 && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <button
-                onClick={() => setSelectedStation('')}
+                onClick={() => { setSelectedStation(''); setExpoMode(false); }}
                 className={cn(
                   'text-xs px-3 py-2 rounded-lg font-medium transition-all',
-                  !selectedStation
+                  !selectedStation && !expoMode
                     ? 'bg-primary-600 text-white shadow-md'
                     : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-300 hover:bg-gray-200',
                 )}
@@ -392,22 +446,35 @@ export default function KitchenPage() {
               {stations.map((s) => (
                 <button
                   key={s.id}
-                  onClick={() => setSelectedStation(s.id)}
+                  onClick={() => { setSelectedStation(s.id); setExpoMode(false); }}
                   className={cn(
                     'text-xs px-3 py-2 rounded-lg font-medium transition-all flex items-center gap-1.5',
-                    selectedStation === s.id
+                    selectedStation === s.id && !expoMode
                       ? 'text-white shadow-md'
                       : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-300 hover:bg-gray-200',
                   )}
-                  style={selectedStation === s.id ? { backgroundColor: s.color } : undefined}
+                  style={selectedStation === s.id && !expoMode ? { backgroundColor: s.color } : undefined}
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: selectedStation === s.id ? 'white' : s.color }}
+                    style={{ backgroundColor: selectedStation === s.id && !expoMode ? 'white' : s.color }}
                   />
                   {s.nameAr}
                 </button>
               ))}
+              {/* Expo / assembly board */}
+              <button
+                onClick={() => { setExpoMode(true); setSelectedStation(''); }}
+                className={cn(
+                  'text-xs px-3 py-2 rounded-lg font-bold transition-all flex items-center gap-1.5',
+                  expoMode
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-300 hover:bg-gray-200',
+                )}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                التجميع
+              </button>
             </div>
           )}
 
@@ -488,6 +555,91 @@ export default function KitchenPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400">جاري تحميل الطلبات...</p>
           </div>
         </div>
+      ) : expoMode ? (
+        /* ===== Expo / assembly board ===== */
+        <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-dark-bg/50 p-4">
+          {totalActive === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-600">
+              <ClipboardList className="w-12 h-12 mb-2 opacity-40" />
+              <p className="text-sm">لا توجد طلبات نشطة</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {[...grouped.PENDING, ...grouped.PREPARING, ...grouped.READY]
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                .map((order) => {
+                  const progress = getStationProgress(order);
+                  const allDone = order.items.length > 0 && order.items.every((i) => i.stationStatus === 'DONE');
+                  const sla = getSLA(order);
+                  const slaStyle = SLA_STYLES[sla.level];
+                  const type = typeConfig[order.type];
+                  const TypeIcon = type?.icon || Store;
+                  const isUpdating = updatingIds.has(order.id);
+                  return (
+                    <div
+                      key={order.id}
+                      className={cn(
+                        'bg-white dark:bg-dark-card rounded-xl border-2 p-3.5 flex flex-col gap-3 ring-1',
+                        allDone ? 'border-emerald-400 dark:border-emerald-600' : 'border-gray-200 dark:border-dark-border',
+                        slaStyle.ring,
+                      )}
+                    >
+                      {/* Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-gray-900 dark:text-white">#{order.orderNumber.slice(-4)}</span>
+                          <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1', type?.class)}>
+                            <TypeIcon className="w-3 h-3" />
+                            {type?.label}
+                          </span>
+                        </div>
+                        <span className={cn('text-xs font-bold tabular-nums flex items-center gap-1', slaStyle.text)}>
+                          <Clock className="w-3 h-3" />
+                          {sla.elapsedMin}/{sla.targetMin}د
+                        </span>
+                      </div>
+
+                      {/* Per-station progress */}
+                      <div className="space-y-1.5">
+                        {progress.map((p) => {
+                          const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                          const done = p.done === p.total;
+                          return (
+                            <div key={p.stationId} className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
+                              <span className="text-xs text-gray-600 dark:text-gray-300 w-16 shrink-0 truncate">{p.nameAr}</span>
+                              <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-dark-hover overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: done ? '#10b981' : p.color }} />
+                              </div>
+                              <span className={cn('text-[10px] tabular-nums shrink-0 w-8 text-left', done ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-gray-400')}>
+                                {p.done}/{p.total}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Action */}
+                      {allDone ? (
+                        <button
+                          onClick={() => advanceStatus(order.id, 'READY')}
+                          disabled={isUpdating}
+                          className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          جاهز — تم التسليم
+                        </button>
+                      ) : (
+                        <div className="w-full py-2 rounded-lg bg-gray-100 dark:bg-dark-hover text-gray-500 dark:text-gray-400 text-xs font-medium text-center">
+                          قيد التحضير · {order.items.filter((i) => i.stationStatus === 'DONE').length}/{order.items.length} أصناف جاهزة
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex-1 grid grid-cols-3 gap-4 p-4 overflow-hidden">
           {columns.map((col) => {
@@ -511,7 +663,8 @@ export default function KitchenPage() {
                     </div>
                   ) : (
                     colOrders.map((order) => {
-                      const overdue = isOverdue(order.createdAt);
+                      const sla = getSLA(order);
+                      const overdue = sla.level === 'late';
                       const type = typeConfig[order.type];
                       const TypeIcon = type?.icon || Store;
                       const isUpdating = updatingIds.has(order.id);
@@ -548,10 +701,14 @@ export default function KitchenPage() {
                             </div>
                             <div className={cn(
                               'flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md',
-                              overdue
-                                ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                                : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-400',
-                            )}>
+                              sla.level === 'late'
+                                ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'
+                                : sla.level === 'warn'
+                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                                  : 'bg-gray-100 dark:bg-dark-hover text-gray-600 dark:text-gray-400',
+                            )}
+                            title={`الزمن المتوقّع للتحضير: ${sla.targetMin} دقيقة`}
+                            >
                               {overdue && <AlertCircle className="w-3 h-3" />}
                               <Clock className="w-3 h-3" />
                               <span>{getElapsed(order.createdAt)}</span>
@@ -609,26 +766,37 @@ export default function KitchenPage() {
 
                           {/* Action button */}
                           {selectedStation ? (
-                            // Station mode: advance all items for this station
-                            <button
-                              onClick={() => advanceAllStationItems(order)}
-                              disabled={isUpdating || stationItems.every(i => i.stationStatus === 'DONE')}
-                              className={cn(
-                                'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98]',
-                                stationItems.every(i => i.stationStatus === 'DONE')
-                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default'
-                                  : col.btnClass,
-                                isUpdating && 'opacity-60 cursor-not-allowed',
-                              )}
-                              style={{ minHeight: '48px' }}
-                            >
-                              {stationItems.every(i => i.stationStatus === 'DONE')
-                                ? '✓ تم التحضير'
-                                : stationItems.some(i => i.stationStatus === 'PREPARING')
-                                  ? 'تم - جاهز ✓'
-                                  : 'ابدأ الكل'
-                              }
-                            </button>
+                            // Station mode: batch-bump this station's items
+                            (() => {
+                              const allDone = stationItems.every((i) => i.stationStatus === 'DONE');
+                              const anyPending = stationItems.some((i) => i.stationStatus === 'PENDING');
+                              const startCount = stationItems.filter((i) => i.stationStatus === 'PENDING').length;
+                              const readyCount = stationItems.filter((i) => i.stationStatus === 'PREPARING').length;
+                              return (
+                                <button
+                                  onClick={() => advanceAllStationItems(order)}
+                                  disabled={isUpdating || allDone}
+                                  className={cn(
+                                    'w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-1.5',
+                                    allDone
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default'
+                                      : anyPending
+                                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                        : 'bg-amber-600 hover:bg-amber-700 text-white',
+                                    isUpdating && 'opacity-60 cursor-not-allowed',
+                                  )}
+                                  style={{ minHeight: '48px' }}
+                                >
+                                  {allDone ? (
+                                    <><Check className="w-4 h-4" /> تم تحضير القسم</>
+                                  ) : anyPending ? (
+                                    <><Flame className="w-4 h-4" /> ابدأ الكل ({startCount})</>
+                                  ) : (
+                                    <><Check className="w-4 h-4" /> جاهز الكل ({readyCount})</>
+                                  )}
+                                </button>
+                              );
+                            })()
                           ) : (
                             // All-stations mode: advance whole order
                             <button

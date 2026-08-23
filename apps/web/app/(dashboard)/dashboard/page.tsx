@@ -1,14 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import { DollarSign, ShoppingBag, TrendingUp, Receipt, CalendarDays, CalendarRange, UtensilsCrossed, ShoppingCart, Truck } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { DollarSign, ShoppingBag, TrendingUp, Receipt, CalendarDays, CalendarRange, UtensilsCrossed, ShoppingCart, Truck, Moon } from 'lucide-react';
 import StatsCard from '@/components/dashboard/StatsCard';
-import SalesChart from '@/components/charts/SalesChart';
+
+// Defer recharts (~100 kB) until after the dashboard shell + stat cards paint.
+// The chart sits below the fold, so its bundle shouldn't block first render.
+const SalesChart = dynamic(() => import('@/components/charts/SalesChart'), {
+  ssr: false,
+  loading: () => (
+    <div className="glass-card p-6 animate-fade-in-up">
+      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">المبيعات — آخر ٣٠ يوم</h3>
+      <div className="h-80 rounded-xl bg-gray-100 dark:bg-dark-hover animate-pulse" />
+    </div>
+  ),
+});
 import RecentOrders from '@/components/dashboard/RecentOrders';
 import TopItems from '@/components/dashboard/TopItems';
 import DashboardSkeleton from '@/components/shared/DashboardSkeleton';
 import BranchFilter from '@/components/dashboard/BranchFilter';
+import RamadanBanner from '@/components/dashboard/RamadanBanner';
 import { useApi } from '@/hooks/useApi';
+import { isRamadan } from '@/lib/hijri';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
 import SARSymbol from '@/components/shared/SARSymbol';
 
@@ -37,6 +51,10 @@ interface OverviewData {
 
 export default function DashboardPage() {
   const [branchId, setBranchId] = useState('all');
+  // Ramadan visuals turn on automatically during Ramadan; this lets staff
+  // preview the theme year-round from the dashboard.
+  const [previewRamadan, setPreviewRamadan] = useState(false);
+  const ramadanActive = previewRamadan || isRamadan();
 
   // SWR caches per branch, dedupes, and revalidates in the background — so
   // switching branches back and forth is instant instead of refetching.
@@ -62,13 +80,26 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <BranchFilter value={branchId} onChange={setBranchId} />
-          <div className="text-left">
-            <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {new Date().toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
-          </div>
+          {!isRamadan() && (
+            <button
+              type="button"
+              onClick={() => setPreviewRamadan((v) => !v)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-all',
+                previewRamadan
+                  ? 'border-amber-400/60 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
+                  : 'border-gray-200 text-gray-500 hover:text-gray-700 dark:border-dark-border dark:text-gray-400',
+              )}
+            >
+              <Moon className="h-3.5 w-3.5" />
+              {previewRamadan ? 'إيقاف معاينة رمضان' : 'معاينة وضع رمضان'}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Hijri date + prayer times — flips to a festive iftar/suhoor countdown in Ramadan */}
+      <RamadanBanner forcePreview={ramadanActive} />
 
       {/* Today Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">

@@ -2,12 +2,14 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { PrismaService } from '../prisma/prisma.service';
 import { OrdersGateway } from '../orders/orders.gateway';
 import { CreateReservationDto, UpdateReservationStatusDto } from './dto/create-reservation.dto';
+import { WhatsAppService } from '../messaging/whatsapp.service';
 
 @Injectable()
 export class ReservationsService {
   constructor(
     private prisma: PrismaService,
     private ordersGateway: OrdersGateway,
+    private whatsapp: WhatsAppService,
   ) {}
 
   async findAll(restaurantId: string, filters: { branchId?: string; date?: string; status?: string }) {
@@ -192,9 +194,23 @@ export class ReservationsService {
       data: { status: dto.status as any },
       include: {
         table: { select: { number: true, nameAr: true } },
-        branch: { select: { nameAr: true } },
+        branch: { select: { nameAr: true, restaurant: { select: { nameAr: true } } } },
       },
     });
+
+    // Notify the customer on WhatsApp when their reservation is confirmed.
+    if (dto.status === 'CONFIRMED' && updated.customerPhone) {
+      await this.whatsapp.sendReservationConfirmed({
+        restaurantId,
+        reservationId: updated.id,
+        customerName: updated.customerName,
+        rawPhone: updated.customerPhone,
+        restaurantName: updated.branch?.restaurant?.nameAr || 'مطعمنا',
+        date: updated.date.toISOString().slice(0, 10),
+        time: updated.time,
+        partySize: updated.partySize,
+      });
+    }
 
     // Update table status based on reservation status
     if (dto.status === 'SEATED') {

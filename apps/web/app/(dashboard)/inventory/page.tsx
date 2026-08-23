@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Package, Plus, Pencil, X, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History } from 'lucide-react';
+import { Package, Plus, Pencil, X, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import TableSkeleton from '@/components/shared/TableSkeleton';
 import EmptyState from '@/components/shared/EmptyState';
 import api from '@/lib/api';
 import { cn, formatSAR, formatNumber } from '@/lib/utils';
+import { downloadCSV, fileDateStamp } from '@/lib/export';
 import SARSymbol from '@/components/shared/SARSymbol';
 
 interface Ingredient {
@@ -174,6 +175,22 @@ export default function InventoryPage() {
 
   const lowStockCount = ingredients.filter((i) => Number(i.currentStock) <= Number(i.minStock) && Number(i.minStock) > 0).length;
 
+  function exportInventoryCSV() {
+    const headers = ['المكوّن', 'الاسم (EN)', 'الوحدة', 'التكلفة/وحدة', 'المخزون الحالي', 'الحد الأدنى', 'قيمة المخزون'];
+    const rows = ingredients.map((i) => [
+      i.nameAr,
+      i.name,
+      i.unit,
+      i.costPerUnit,
+      i.currentStock,
+      i.minStock,
+      Math.round(Number(i.currentStock) * Number(i.costPerUnit) * 100) / 100,
+    ]);
+    const ok = downloadCSV(`المخزون-${fileDateStamp()}`, headers, rows);
+    if (ok) toast.success('تم تصدير ملف Excel');
+    else toast.error('لا توجد بيانات للتصدير');
+  }
+
   if (loading) return <TableSkeleton columns={7} />;
 
   return (
@@ -184,10 +201,20 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">المخزون</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">إدارة المكونات والمخزون</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
-          <Plus className="w-4 h-4" />
-          مكوّن جديد
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={exportInventoryCSV}
+            disabled={ingredients.length === 0}
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            تصدير Excel
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" />
+            مكوّن جديد
+          </button>
+        </div>
       </div>
 
       {/* Low Stock Alert */}

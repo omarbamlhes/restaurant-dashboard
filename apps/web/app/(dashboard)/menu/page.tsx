@@ -35,6 +35,13 @@ interface RecipeLine {
   lineCost: number;
 }
 
+interface Ingredient {
+  id: string;
+  nameAr: string;
+  unit: string;
+  costPerUnit: number;
+}
+
 interface MenuItem {
   id: string;
   name: string;
@@ -69,6 +76,12 @@ export default function MenuPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [stations, setStations] = useState<KitchenStation[]>([]);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+
+  // Recipe editor state
+  const [recipeItem, setRecipeItem] = useState<MenuItem | null>(null);
+  const [recipeLines, setRecipeLines] = useState<{ ingredientId: string; quantity: string }[]>([]);
+  const [savingRecipe, setSavingRecipe] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('');
 
@@ -95,14 +108,16 @@ export default function MenuPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [itemsRes, catsRes, stationsRes] = await Promise.all([
+      const [itemsRes, catsRes, stationsRes, ingredientsRes] = await Promise.all([
         api.get('/menu', { params: activeCategory ? { categoryId: activeCategory } : {} }),
         api.get('/menu/categories'),
         api.get('/kitchen-stations'),
+        api.get('/inventory'),
       ]);
       setItems(itemsRes.data);
       setCategories(catsRes.data);
       setStations(stationsRes.data);
+      setIngredients(ingredientsRes.data);
     } catch {
       toast.error('فشل تحميل بيانات القائمة');
     } finally {
@@ -134,6 +149,43 @@ export default function MenuPage() {
       stationId: item.station?.id || '',
     });
     setShowModal(true);
+  }
+
+  function openRecipe(item: MenuItem) {
+    setRecipeItem(item);
+    setRecipeLines(
+      (item.recipe ?? []).map((r) => ({ ingredientId: r.ingredientId, quantity: String(r.quantity) })),
+    );
+  }
+
+  function addRecipeLine() {
+    setRecipeLines((ls) => [...ls, { ingredientId: '', quantity: '' }]);
+  }
+
+  function updateRecipeLine(idx: number, patch: Partial<{ ingredientId: string; quantity: string }>) {
+    setRecipeLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  }
+
+  function removeRecipeLine(idx: number) {
+    setRecipeLines((ls) => ls.filter((_, i) => i !== idx));
+  }
+
+  async function saveRecipe() {
+    if (!recipeItem) return;
+    const lines = recipeLines
+      .filter((l) => l.ingredientId && parseFloat(l.quantity) > 0)
+      .map((l) => ({ ingredientId: l.ingredientId, quantity: parseFloat(l.quantity) }));
+    setSavingRecipe(true);
+    try {
+      const { data } = await api.put(`/menu/${recipeItem.id}/recipe`, { lines });
+      setItems((prev) => prev.map((it) => (it.id === data.id ? { ...it, ...data } : it)));
+      toast.success('تم حفظ الوصفة');
+      setRecipeItem(null);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'فشل حفظ الوصفة');
+    } finally {
+      setSavingRecipe(false);
+    }
   }
 
   async function handleSave() {
@@ -376,10 +428,13 @@ export default function MenuPage() {
                     )}
                   </div>
                   <div className="flex gap-1">
-                    <button onClick={() => openEdit(item)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
+                    <button onClick={() => openRecipe(item)} title="تعديل الوصفة" className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
+                      <ChefHat className={cn('w-3.5 h-3.5 hover:text-primary-600', item.recipeCost != null ? 'text-primary-500' : 'text-gray-400')} />
+                    </button>
+                    <button onClick={() => openEdit(item)} title="تعديل الصنف" className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
                       <Pencil className="w-3.5 h-3.5 text-gray-400 hover:text-primary-600" />
                     </button>
-                    <button onClick={() => setDeleteId(item.id)} className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors">
+                    <button onClick={() => setDeleteId(item.id)} title="حذف" className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors">
                       <Trash2 className="w-3.5 h-3.5 text-gray-400 hover:text-rose-600" />
                     </button>
                   </div>
@@ -638,6 +693,110 @@ export default function MenuPage() {
           </div>
         </div>
       )}
+
+      {/* Recipe Editor */}
+      {recipeItem && (() => {
+        const ingById = Object.fromEntries(ingredients.map((i) => [i.id, i]));
+        const previewCost = recipeLines.reduce((sum, l) => {
+          const ing = ingById[l.ingredientId];
+          const q = parseFloat(l.quantity);
+          return sum + (ing && q > 0 ? Number(ing.costPerUnit) * q : 0);
+        }, 0);
+        const price = Number(recipeItem.price);
+        const foodCostPct = price > 0 ? (previewCost / price) * 100 : null;
+        const margin = price > 0 ? ((price - previewCost) / price) * 100 : null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setRecipeItem(null)}>
+            <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <ChefHat className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                  وصفة: {recipeItem.nameAr}
+                </h3>
+                <button onClick={() => setRecipeItem(null)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors">
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">حدّد مكونات الصنف وكمياتها — تُحسب التكلفة والهامش تلقائياً.</p>
+
+              <div className="space-y-2 mb-3">
+                {recipeLines.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-4">لا توجد مكونات بعد. أضف أول مكوّن.</p>
+                )}
+                {recipeLines.map((line, idx) => {
+                  const ing = ingById[line.ingredientId];
+                  const q = parseFloat(line.quantity);
+                  const lineCost = ing && q > 0 ? Number(ing.costPerUnit) * q : 0;
+                  return (
+                    <div key={idx} className="flex items-center gap-2">
+                      <select
+                        value={line.ingredientId}
+                        onChange={(e) => updateRecipeLine(idx, { ingredientId: e.target.value })}
+                        className="input-field text-sm flex-1 min-w-0"
+                      >
+                        <option value="">اختر المكوّن</option>
+                        {ingredients.map((i) => (
+                          <option key={i.id} value={i.id}>{i.nameAr} ({formatSAR(i.costPerUnit)}/{i.unit})</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={line.quantity}
+                        onChange={(e) => updateRecipeLine(idx, { quantity: e.target.value })}
+                        placeholder="الكمية"
+                        className="input-field text-sm w-24"
+                        dir="ltr"
+                      />
+                      <span className="text-xs text-gray-400 w-10 text-center shrink-0">{ing?.unit || '—'}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 w-16 text-left tabular-nums shrink-0">{formatSAR(lineCost)}</span>
+                      <button onClick={() => removeRecipeLine(idx)} className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors shrink-0">
+                        <Trash2 className="w-4 h-4 text-gray-400 hover:text-rose-600" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button onClick={addRecipeLine} className="flex items-center gap-1.5 text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 font-medium mb-4">
+                <Plus className="w-4 h-4" /> إضافة مكوّن
+              </button>
+
+              {/* Live costing preview */}
+              <div className="rounded-xl bg-gray-50 dark:bg-dark-hover/50 p-4 mb-5 space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">سعر البيع</span>
+                  <span className="font-medium tabular-nums">{formatSAR(price)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">تكلفة الوصفة</span>
+                  <span className="font-medium tabular-nums">{formatSAR(previewCost)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">تكلفة الطعام</span>
+                  <span className={cn('font-medium tabular-nums', foodCostPct == null ? '' : foodCostPct <= 35 ? 'text-emerald-600' : foodCostPct <= 45 ? 'text-amber-600' : 'text-rose-600')}>
+                    {foodCostPct == null ? '—' : `${foodCostPct.toFixed(1)}%`}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 dark:border-dark-border pt-1.5">
+                  <span className="text-gray-500 dark:text-gray-400">هامش الربح</span>
+                  <span className={cn('font-bold tabular-nums', margin == null ? '' : margin >= 50 ? 'text-emerald-600' : margin >= 30 ? 'text-amber-600' : 'text-rose-600')}>
+                    {margin == null ? '—' : `${margin.toFixed(1)}%`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={saveRecipe} disabled={savingRecipe} className="btn-primary flex-1 disabled:opacity-50">
+                  {savingRecipe ? 'جاري الحفظ...' : 'حفظ الوصفة'}
+                </button>
+                <button onClick={() => setRecipeItem(null)} className="btn-secondary flex-1">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

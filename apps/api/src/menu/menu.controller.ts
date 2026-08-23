@@ -66,4 +66,14 @@ export class MenuController {
     const rid = await this.restaurantHelper.getRestaurantId(req.user);
     return this.menuService.getProfitAnalysis(id, rid);
   }
+
+  @Put(':id/recipe')
+  async updateRecipe(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { lines: { ingredientId: string; quantity: number }[] },
+  ) {
+    const rid = await this.restaurantHelper.getRestaurantId(req.user);
+    return this.menuService.updateRecipe(id, rid, body.lines ?? []);
+  }
 }

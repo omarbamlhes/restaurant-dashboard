@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMenuItemDto, UpdateMenuItemDto, CreateCategoryDto } from './dto/create-menu-item.dto';
 import { computeItemCosting } from './recipe-cost';
@@ -93,6 +93,49 @@ export class MenuService {
     const cost = item.effectiveCost ?? Number(item.cost || 0);
     const profit = Math.round((price - cost) * 100) / 100;
     return { ...item, cost, profit, margin: item.margin ?? 0 };
+  }
+
+  /**
+   * Replace a menu item's recipe wholesale with the given ingredient lines.
+   * Validates ownership of both the item and every ingredient, drops zero /
+   * duplicate lines, then swaps the rows in one transaction.
+   */
+  async updateRecipe(
+    id: string,
+    restaurantId: string,
+    lines: { ingredientId: string; quantity: number }[],
+  ) {
+    const item = await this.prisma.menuItem.findFirst({ where: { id, restaurantId } });
+    if (!item) throw new NotFoundException('الصنف غير موجود');
+
+    // Keep the last positive quantity per ingredient (dedupe), drop the rest.
+    const byIngredient = new Map<string, number>();
+    for (const l of lines) {
+      const q = Number(l.quantity);
+      if (l.ingredientId && q > 0) byIngredient.set(l.ingredientId, q);
+    }
+    const clean = [...byIngredient.entries()].map(([ingredientId, quantity]) => ({ ingredientId, quantity }));
+
+    // Every ingredient must belong to this restaurant.
+    if (clean.length) {
+      const owned = await this.prisma.ingredient.count({
+        where: { restaurantId, id: { in: clean.map((l) => l.ingredientId) } },
+      });
+      if (owned !== clean.length) {
+        throw new BadRequestException('أحد المكونات غير موجود في مخزون هذا المطعم');
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.menuItemIngredient.deleteMany({ where: { menuItemId: id } }),
+      ...(clean.length
+        ? [this.prisma.menuItemIngredient.createMany({
+            data: clean.map((l) => ({ menuItemId: id, ingredientId: l.ingredientId, quantity: l.quantity })),
+          })]
+        : []),
+    ]);
+
+    return this.findOne(id, restaurantId);
   }
 
   async getCategories(restaurantId: string) {
